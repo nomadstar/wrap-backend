@@ -15,6 +15,7 @@ DB_PASSWORD = "password"
 DB_HOST = "db"
 DB_PORT = "5432"
 TABLE_NAME = "cards"  # Cambia esto por el nombre real de tu tabla
+# Probando pushs
 
 DB_URL = f"dbname={DB_NAME} user={DB_USER} password={DB_PASSWORD} host={DB_HOST} port={DB_PORT}"
 
