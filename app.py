@@ -9,11 +9,11 @@ from parsetodb import json_to_insert
 app = Flask(__name__)
 
 # Configuración de la base de datos desde compose.yaml
-DB_NAME = "mydatabase"
-DB_USER = "user"
-DB_PASSWORD = "password"
-DB_HOST = "db"
-DB_PORT = "5432"
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
 TABLE_NAME = "cards"  # Cambia esto por el nombre real de tu tabla
 # Probando pushs
 
