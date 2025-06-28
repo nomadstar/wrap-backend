@@ -8,8 +8,6 @@ from functools import wraps
 # filepath: /home/ignatus/Documentos/Github/WrapSell/backend_local/app.py
 
 app = Flask(__name__)
-
-# Configuración de la base de datos desde compose.yaml
 DATABASE_URL = os.getenv('DATABASE_URL')
 url = urllib.parse.urlparse(DATABASE_URL)
 TABLE_NAME = "cards"  # Cambia esto por el nombre real de tu tabla
@@ -27,6 +25,81 @@ def require_api_key(f):
             return jsonify({"error": "API key requerida o inválida"}), 401
         return f(*args, **kwargs)
     return decorated_function
+
+
+@app.route('/users', methods=['POST'])
+@require_api_key
+def create_user():
+    """
+    Crear un nuevo usuario en la base de datos
+    Espera JSON con: wallet_address, wallet_type, username (opcional), email (opcional)
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "JSON requerido"}), 400
+        
+        wallet_address = data.get('wallet_address')
+        wallet_type = data.get('wallet_type')
+        username = data.get('username')
+        email = data.get('email')
+        
+        if not wallet_address or not wallet_type:
+            return jsonify({"error": "wallet_address y wallet_type son requeridos"}), 400
+        
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Verificar si el usuario ya existe
+        cur.execute("SELECT wallet_address FROM users WHERE wallet_address = %s;", (wallet_address,))
+        if cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Usuario ya existe"}), 409
+        
+        # Insertar nuevo usuario
+        cur.execute(
+            "INSERT INTO users (wallet_address, wallet_type, username, email) VALUES (%s, %s, %s, %s);",
+            (wallet_address, wallet_type, username, email)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({"message": "Usuario creado exitosamente", "wallet_address": wallet_address}), 201
+    except Exception as e:
+        return jsonify({"error": f"Error al crear usuario: {e}"}), 500
+# Configuración de la base de datos desde compose.yaml
+
+@app.route('/users/<string:wallet_address>', methods=['GET'])
+@require_api_key
+def get_user(wallet_address):
+    """
+    Obtener los datos de un usuario según su wallet_address
+    """
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        cur.execute("SELECT * FROM users WHERE wallet_address = %s;", (wallet_address,))
+        row = cur.fetchone()
+        
+        if not row:
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Usuario no encontrado"}), 404
+        
+        columns = [desc[0] for desc in cur.description]
+        user = dict(zip(columns, row))
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify(user), 200
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener el usuario: {e}"}), 500
+
 
 @app.route('/', methods=['GET'])
 def home():
