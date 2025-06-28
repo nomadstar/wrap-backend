@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+import urllib.parse
 import os
 import psycopg2
 import extraer
@@ -9,11 +10,15 @@ from parsetodb import json_to_insert
 app = Flask(__name__)
 
 # Configuración de la base de datos desde compose.yaml
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+url = urllib.parse.urlparse(DATABASE_URL)
+
+DB_NAME = url.path[1:]  # Remove the leading slash
+DB_USER = url.username
+DB_PASSWORD = url.password
+DB_HOST = url.hostname
+DB_PORT = url.port
 TABLE_NAME = "cards"  # Cambia esto por el nombre real de tu tabla
 # Probando pushs
 
