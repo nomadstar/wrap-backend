@@ -3,28 +3,50 @@ import urllib.parse
 import os
 import psycopg2
 import extraer
-from parsetodb import json_to_insert
+from functools import wraps
 
 # filepath: /home/ignatus/Documentos/Github/WrapSell/backend_local/app.py
 
 app = Flask(__name__)
 
 # Configuración de la base de datos desde compose.yaml
-
-DATABASE_URL = os.environ['DATABASE_URL']
+DATABASE_URL = os.getenv('DATABASE_URL')
 url = urllib.parse.urlparse(DATABASE_URL)
-
-DB_NAME = url.path[1:]  # Remove the leading slash
-DB_USER = url.username
-DB_PASSWORD = url.password
-DB_HOST = url.hostname
-DB_PORT = url.port
 TABLE_NAME = "cards"  # Cambia esto por el nombre real de tu tabla
-# Probando pushs
 
-DB_URL = f"dbname={DB_NAME} user={DB_USER} password={DB_PASSWORD} host={DB_HOST} port={DB_PORT}"
+# Clave secreta para la API
+API_SECRET_KEY = os.getenv('API_SECRET_KEY', 'your-default-secret-key-here')
+
+DB_URL = f"dbname={url.path[1:]} user={url.username} password={url.password} host={url.hostname} port={url.port}"
+
+def require_api_key(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
+        if not api_key or api_key != API_SECRET_KEY:
+            return jsonify({"error": "API key requerida o inválida"}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/', methods=['GET'])
+def home():
+    """
+    Página principal - Muestra información sobre las rutas disponibles
+    """
+    return jsonify({
+        "message": "Bienvenido a WrapSell API",
+        "authentication": "Requiere X-API-Key header o api_key parameter",
+        "endpoints": {
+            "GET /cards": "Obtener todas las cartas",
+            "GET /cards/<id>": "Obtener una carta específica",
+            "GET /total_value": "Obtener valor total de la colección",
+            "POST /update_prices": "Actualizar precios de las cartas",
+            "GET /users/<wallet_address>/cards": "Obtener cartas de un usuario específico"
+        }
+    }), 200
 
 @app.route('/cards', methods=['GET'])
+@require_api_key
 def get_cards():
     try:
         conn = psycopg2.connect(DB_URL)
@@ -40,6 +62,7 @@ def get_cards():
         return jsonify({"error": f"Error al obtener las cartas: {e}"}), 500
 
 @app.route('/cards/<int:card_id>', methods=['GET'])
+@require_api_key
 def get_card(card_id):
     try:
         conn = psycopg2.connect(DB_URL)
@@ -56,101 +79,8 @@ def get_card(card_id):
     except Exception as e:
         return jsonify({"error": f"Error al obtener la carta: {e}"}), 500
 
-@app.route('/cards', methods=['POST'])
-def create_card():
-    data = request.get_json()
-    required_fields = ['name', 'card_id', 'edition', 'market_value']
-    if not all(field in data for field in required_fields):
-        return jsonify({"error": "Faltan campos requeridos"}), 400
-    try:
-        conn = psycopg2.connect(DB_URL)
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO cards (name, card_id, edition, user_wallet, url, market_value, in_pool)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING id;
-        """, (
-            data['name'],
-            data['card_id'],
-            data.get('edition'),
-            data.get('user_wallet'),
-            data.get('url'),
-            data['market_value'],
-            data.get('in_pool', True)
-        ))
-        new_id = cur.fetchone()[0]
-        conn.commit()
-        cur.close()
-        conn.close()
-        return jsonify({"message": "Carta creada correctamente", "id": new_id}), 201
-    except Exception as e:
-        return jsonify({"error": f"Error al crear la carta: {e}"}), 500
-
-@app.route('/cards/<int:card_id>', methods=['PUT'])
-def update_card(card_id):
-    data = request.get_json()
-    fields = []
-    values = []
-    for key in ['name', 'card_id', 'edition', 'user_wallet', 'url', 'market_value', 'in_pool']:
-        if key in data:
-            fields.append(f"{key} = %s")
-            values.append(data[key])
-    if not fields:
-        return jsonify({"error": "No se proporcionaron campos para actualizar"}), 400
-    values.append(card_id)
-    try:
-        conn = psycopg2.connect(DB_URL)
-        cur = conn.cursor()
-        cur.execute(f"""
-            UPDATE cards SET {', '.join(fields)} WHERE id = %s;
-        """, tuple(values))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return jsonify({"message": "Carta actualizada correctamente"}), 200
-    except Exception as e:
-        return jsonify({"error": f"Error al actualizar la carta: {e}"}), 500
-
-@app.route('/cards/<int:card_id>', methods=['DELETE'])
-def delete_card(card_id):
-    try:
-        conn = psycopg2.connect(DB_URL)
-        cur = conn.cursor()
-        cur.execute("DELETE FROM cards WHERE id = %s;", (card_id,))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return jsonify({"message": "Carta eliminada correctamente"}), 200
-    except Exception as e:
-        return jsonify({"error": f"Error al eliminar la carta: {e}"}), 500
-    
-@app.route('/users', methods=['POST'])
-def create_user():
-    data = request.get_json()
-    required_fields = ['wallet_address', 'wallet_type']
-    if not all(field in data for field in required_fields):
-        return jsonify({"error": "Faltan campos requeridos"}), 400
-    try:
-        conn = psycopg2.connect(DB_URL)
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO users (wallet_address, wallet_type, username, email)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (wallet_address) DO NOTHING;
-        """, (
-            data['wallet_address'],
-            data['wallet_type'],
-            data.get('username'),
-            data.get('email')
-        ))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return jsonify({"message": "Usuario creado correctamente"}), 201
-    except Exception as e:
-        return jsonify({"error": f"Error al crear el usuario: {e}"}), 500
-    
 @app.route('/total_value', methods=['GET'])
+@require_api_key
 def get_total_value():
     try:
         conn = psycopg2.connect(DB_URL)
@@ -164,6 +94,7 @@ def get_total_value():
         return jsonify({"error": f"Error al calcular el valor total: {e}"}), 500
     
 @app.route('/update_prices', methods=['POST'])
+@require_api_key
 def update_prices_endpoint():
     try:
         conn = psycopg2.connect(DB_URL)
@@ -198,8 +129,8 @@ def update_prices_endpoint():
     except Exception as e:
         return jsonify({"error": f"Error general al actualizar precios: {e}"}), 500
     
-    
 @app.route('/users/<string:wallet_address>/cards', methods=['GET'])
+@require_api_key
 def get_user_cards(wallet_address):
     """
     Retorna todas las cartas asociadas a una dirección de billetera específica.
