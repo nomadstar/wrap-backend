@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 # Configuración de la base de datos desde compose.yaml
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.environ['DATABASE_URL']
 url = urllib.parse.urlparse(DATABASE_URL)
 
 DB_NAME = url.path[1:]  # Remove the leading slash
