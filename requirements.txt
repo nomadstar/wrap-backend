@@ -1,6 +1,13 @@
-requests
-beautifulsoup4
-psycopg2
-opencv-python
-psycopg2
-flask
+# HTTP + scraping
+requests==2.31.0
+beautifulsoup4==4.12.2
+
+# Flask web framework
+Flask==2.3.2
+gunicorn==20.1.0
+
+# Postgres driver (use the binary wheel on Heroku)
+psycopg2-binary==2.9.9
+
+# OpenCV (headless build, no GUI deps)
+opencv-python-headless==4.8.0.74
