@@ -1,13 +1,13 @@
 # HTTP + scraping
-requests==2.31.0
-beautifulsoup4==4.12.2
+requests
+beautifulsoup4
 
 # Flask web framework
-Flask==2.3.2
-gunicorn==20.1.0
+Flask
+gunicorn
 
 # Postgres driver (use the binary wheel on Heroku)
-psycopg2-binary==2.9.9
+psycopg2-binary
 
 # OpenCV (headless build, no GUI deps)
-opencv-python-headless==4.8.0.74
+opencv-python-headless
