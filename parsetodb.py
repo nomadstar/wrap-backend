@@ -30,16 +30,24 @@ def clean_dollar_signs(json_obj):
 
 def watch_and_insert_json_clean_dollars(directory, table_name, db_url, poll_interval=5):
     processed_files = set()
-    while True:
-        if not os.path.exists(directory):
-            print(f"Directorio {directory} no existe. Esperando...")
-            time.sleep(poll_interval)
-            continue
-        found = False
-        for filename in os.listdir(directory):
-            if filename.endswith('.json') and filename not in processed_files:
-                found = True
-                json_file_path = os.path.join(directory, filename)
+    
+    # Esperar hasta que el directorio exista
+    while not os.path.exists(directory):
+        print(f"Directorio {directory} no existe. Esperando...")
+        time.sleep(poll_interval)
+        continue
+    
+    print(f"📁 Directorio {directory} encontrado. Procesando archivos existentes...")
+    
+    # PRIMERA FASE: Procesar archivos existentes
+    existing_files = [f for f in os.listdir(directory) if f.endswith('.json')]
+    
+    if existing_files:
+        print(f"🔍 Se encontraron {len(existing_files)} archivos JSON existentes.")
+        for filename in existing_files:
+            print(f"📄 Procesando archivo existente: {filename}")
+            json_file_path = os.path.join(directory, filename)
+            try:
                 with open(json_file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     if isinstance(data, dict):
@@ -54,12 +62,51 @@ def watch_and_insert_json_clean_dollars(directory, table_name, db_url, poll_inte
                             conn.commit()
                             cur.close()
                             conn.close()
-                            print(f"Registro insertado correctamente desde {filename}.")
+                            print(f"✅ Registro insertado correctamente desde {filename}.")
                         except Exception as e:
-                            print(f"Error al insertar el registro desde {filename}: {e}")
+                            print(f"❌ Error al insertar el registro desde {filename}: {e}")
                 processed_files.add(filename)
+            except Exception as e:
+                print(f"❌ Error al leer el archivo {filename}: {e}")
+        
+        print(f"🎉 Procesamiento inicial completado. {len(processed_files)} archivos procesados.")
+    else:
+        print("📂 No se encontraron archivos JSON existentes en el directorio.")
+    
+    # SEGUNDA FASE: Modo de observación continua
+    print("👀 Iniciando modo de observación para nuevos archivos...")
+    print("-" * 50)
+    
+    while True:
+        found = False
+        for filename in os.listdir(directory):
+            if filename.endswith('.json') and filename not in processed_files:
+                found = True
+                print(f"🆕 Nuevo archivo detectado: {filename}")
+                json_file_path = os.path.join(directory, filename)
+                try:
+                    with open(json_file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        if isinstance(data, dict):
+                            data = [data]
+                        for json_obj in data:
+                            insert_stmt = json_to_insert(table_name, json_obj)
+                            try:
+                                conn = psycopg2.connect(db_url)
+                                cur = conn.cursor()
+                                cur.execute(insert_stmt)
+                                conn.commit()
+                                cur.close()
+                                conn.close()
+                                print(f"✅ Registro insertado correctamente desde {filename}.")
+                            except Exception as e:
+                                print(f"❌ Error al insertar el registro desde {filename}: {e}")
+                    processed_files.add(filename)
+                except Exception as e:
+                    print(f"❌ Error al leer el archivo {filename}: {e}")
+                    
         if not found:
-            print("Esperando archivos .json en", directory)
+            print("⏳ Esperando nuevos archivos .json en", directory)
         time.sleep(poll_interval)
 
 def json_to_insert(table_name, json_obj):
@@ -102,17 +149,24 @@ def insert_card_data_to_db(edition_name, card_name, card_number, table_name, db_
 
 def watch_and_insert_json(directory, table_name, db_url, poll_interval=5):
     processed_files = set()
-    while True:
-        if not os.path.exists(directory):
-            print(f"Directorio {directory} no existe. Esperando...")
-            time.sleep(poll_interval)
-            continue
-
-        found = False
-        for filename in os.listdir(directory):
-            if filename.endswith('.json') and filename not in processed_files:
-                found = True
-                json_file_path = os.path.join(directory, filename)
+    
+    # Esperar hasta que el directorio exista
+    while not os.path.exists(directory):
+        print(f"Directorio {directory} no existe. Esperando...")
+        time.sleep(poll_interval)
+        continue
+    
+    print(f"📁 Directorio {directory} encontrado. Procesando archivos existentes...")
+    
+    # PRIMERA FASE: Procesar archivos existentes
+    existing_files = [f for f in os.listdir(directory) if f.endswith('.json')]
+    
+    if existing_files:
+        print(f"🔍 Se encontraron {len(existing_files)} archivos JSON existentes.")
+        for filename in existing_files:
+            print(f"📄 Procesando archivo existente: {filename}")
+            json_file_path = os.path.join(directory, filename)
+            try:
                 with open(json_file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     if isinstance(data, dict):
@@ -126,12 +180,51 @@ def watch_and_insert_json(directory, table_name, db_url, poll_interval=5):
                             conn.commit()
                             cur.close()
                             conn.close()
-                            print(f"Registro insertado correctamente desde {filename}.")
+                            print(f"✅ Registro insertado correctamente desde {filename}.")
                         except Exception as e:
-                            print(f"Error al insertar el registro desde {filename}: {e}")
+                            print(f"❌ Error al insertar el registro desde {filename}: {e}")
                 processed_files.add(filename)
+            except Exception as e:
+                print(f"❌ Error al leer el archivo {filename}: {e}")
+        
+        print(f"🎉 Procesamiento inicial completado. {len(processed_files)} archivos procesados.")
+    else:
+        print("📂 No se encontraron archivos JSON existentes en el directorio.")
+    
+    # SEGUNDA FASE: Modo de observación continua
+    print("👀 Iniciando modo de observación para nuevos archivos...")
+    print("-" * 50)
+    
+    while True:
+        found = False
+        for filename in os.listdir(directory):
+            if filename.endswith('.json') and filename not in processed_files:
+                found = True
+                print(f"🆕 Nuevo archivo detectado: {filename}")
+                json_file_path = os.path.join(directory, filename)
+                try:
+                    with open(json_file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        if isinstance(data, dict):
+                            data = [data]
+                        for json_obj in data:
+                            insert_stmt = json_to_insert(table_name, json_obj)
+                            try:
+                                conn = psycopg2.connect(db_url)
+                                cur = conn.cursor()
+                                cur.execute(insert_stmt)
+                                conn.commit()
+                                cur.close()
+                                conn.close()
+                                print(f"✅ Registro insertado correctamente desde {filename}.")
+                            except Exception as e:
+                                print(f"❌ Error al insertar el registro desde {filename}: {e}")
+                    processed_files.add(filename)
+                except Exception as e:
+                    print(f"❌ Error al leer el archivo {filename}: {e}")
+                    
         if not found:
-            print("Esperando archivos .json en", directory)
+            print("⏳ Esperando nuevos archivos .json en", directory)
         time.sleep(poll_interval)
 
 if __name__ == "__main__":

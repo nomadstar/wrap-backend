@@ -4,16 +4,38 @@ import os
 import psycopg2
 import extraer
 from functools import wraps
+import sys
 
 # filepath: /home/ignatus/Documentos/Github/WrapSell/backend_local/app.py
 
+
+
 app = Flask(__name__)
-DATABASE_URL = os.getenv('DATABASE_URL')
-url = urllib.parse.urlparse(DATABASE_URL)
-TABLE_NAME = "cards"  # Cambia esto por el nombre real de tu tabla
+try:
+    DATABASE_URL = os.getenv('DATABASE_URL')
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL no está definido")
+    url = urllib.parse.urlparse(DATABASE_URL)
+    # Prueba de conexión a la base de datos
+    conn_test = psycopg2.connect(
+        dbname=url.path[1:], user=url.username,
+        password=url.password, host=url.hostname,
+        port=url.port
+    )
+    conn_test.close()
+    print("Conexión a la base de datos exitosa")
+except Exception as e:
+    print(f"Error al conectar a la base de datos: {e}")
+    sys.exit(1)
 
 # Clave secreta para la API
-API_SECRET_KEY = os.getenv('API_SECRET_KEY', 'your-default-secret-key-here')
+API_SECRET_KEY = os.getenv('API_SECRET_KEY')
+if not API_SECRET_KEY:
+    print("API_SECRET_KEY no está definida")
+else:
+    print(f"API_SECRET_KEY: {API_SECRET_KEY}")
+
+TABLE_NAME = "cards"  # Cambia esto por el nombre real de tu tabla
 
 DB_URL = f"dbname={url.path[1:]} user={url.username} password={url.password} host={url.hostname} port={url.port}"
 

@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 import json
+from urllib.parse import urlparse
 
 def format_for_url(text):
     """Convierte un texto a formato para URL (minúsculas, espacios a guiones)."""
@@ -16,6 +17,9 @@ def clean_price_value(price_text):
         return float(cleaned)
     except ValueError:
         return None
+
+
+
 
 def extract_ungraded_card_data(edition_name, card_name_input, card_number_input):
     """
@@ -105,24 +109,126 @@ def save_to_json(data, filename="card_data.json"):
     except TypeError as e:
         print(f"Error de tipo al convertir a JSON: {e}")
 
+def extract_ungraded_card_data_by_link(url):
+    """
+    Extrae la información y el precio Ungraded de una carta de Pokémon TCG
+    desde pricecharting.com.
+
+    Args:
+        url (str): La URL de la carta en pricecharting.com.
+    Returns:
+        dict: Un diccionario con la información y el precio Ungraded de la carta,
+              o None si ocurre un error.
+    """
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+
+    # --- 1. Construir la URL ---
+    try:
+        url = url
+        parsed = urlparse(url)
+        segments = parsed.path.strip('/').split('/')
+        # segments = ['game', '{edition-slug}', '{card-slug}-{card-number}']
+        edition_name = segments[1].replace('-', ' ').title()
+        slug_parts = segments[2].split('-')
+        card_number_input = slug_parts[-1]
+        card_name_input = ' '.join(slug_parts[:-1]).replace('-', ' ').title()
+
+        print(f"URL insertada: {url}")
+    except Exception as e:
+        print(f"Error al construir la URL: {e}")
+        return None
+
+    # --- 2. Realizar la petición y parsear el HTML ---
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()  # Lanza un error para respuestas HTTP malas (4xx o 5xx)
+    except requests.exceptions.HTTPError as e:
+        if response.status_code == 404:
+            print(f"Error: La página no fue encontrada (404) para la URL: {url}. Verifica los nombres y números.")
+        else:
+            print(f"Error HTTP al realizar la petición: {e}")
+        return None
+    except requests.exceptions.RequestException as e:
+        print(f"Error de conexión al realizar la petición HTTP: {e}")
+        return None
+
+    soup = BeautifulSoup(response.content, 'html.parser')
+
+    # --- 3. Extraer el precio Ungraded ---
+    ungraded_price = None  # Valor por defecto
+    try:
+        price_table = soup.find('table', id='price_data')
+        if not price_table:
+            print("Error: No se encontró la tabla de precios (id='price_data').")
+            # Continuamos para devolver otros datos aunque falte el precio
+        else:
+            price_cell = price_table.find('td', id='used_price')
+            if price_cell:
+                price_span = price_cell.find('span', class_='price')
+                if price_span:
+                    price_text = price_span.text.strip()
+                    ungraded_price = clean_price_value(price_text)
+    except Exception as e:
+        print(f"Error al extraer el precio de la tabla: {e}")
+
+    # --- 4. Construir el objeto JSON de salida ---
+    card_data_output = {
+        "name": card_name_input.title(),
+        "card_id": str(card_number_input),
+        "edition": edition_name,
+        "market_value": ungraded_price,  # Ahora es float o None
+        "url": url,
+        "in_pool": "true",
+        "user_wallet": "null"
+    }
+
+    return card_data_output
+
+def save_to_json(data, filename="card_data.json"):
+    """
+    Guarda los datos (un diccionario) en un archivo JSON.
+    """
+    try:
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        print(f"Datos guardados exitosamente en {filename}")
+    except IOError as e:
+        print(f"Error al guardar el archivo JSON: {e}")
+    except TypeError as e:
+        print(f"Error de tipo al convertir a JSON: {e}")
+
 
 # --- Ejemplo de uso ---
 if __name__ == "__main__":
     # Solicitar datos al usuario
-    input_edition = input("Ingresa la edición de la carta (ej: Pokemon Ultra Prism): ")
-    input_card_name = input("Ingresa el nombre de la carta (ej: Frost Rotom): ")
-    input_card_number = input("Ingresa el número de la carta (ej: 41): ")
 
-    if input_edition == "" or input_card_name == "" or input_card_number == "":
-        input_edition = "Pokemon Ultra Prism"
-        input_card_name = "Frost Rotom"
-        input_card_number = "41"
-        
+    print("Bienvenido al extractor de datos de cartas Pokémon TCG.")
+    print("Opcion 1: Extraer datos por edición, nombre y número de carta.")
+    print("Opcion 2: Extraer datos por URL de carta.")
+    option = input("Selecciona una opción (1 o 2): ")
+    if option == "2":
+        input_url = input("Ingresa la URL de la carta (ej: https://www.pricecharting.com/game/pokemon-ultra-prism/frost-rotom-41): ")
+        if input_url == "":
+            input_url = "https://www.pricecharting.com/game/pokemon-ultra-prism/frost-rotom-41"
+        print(f"\nExtrayendo datos desde la URL: {input_url}")
+        card_data = extract_ungraded_card_data_by_link(input_url)
+        if card_data:
+            input_card_name = card_data["name"]
+            input_card_number = card_data["card_id"]
+    else:
+        input_edition = input("Ingresa la edición de la carta (ej: Pokemon Ultra Prism): ")
+        input_card_name = input("Ingresa el nombre de la carta (ej: Frost Rotom): ")
+        input_card_number = input("Ingresa el número de la carta (ej: 41): ")
 
-    print(f"\nExtrayendo datos para: {input_card_name} #{input_card_number} de la edición {input_edition}")
-    
-    # La función ahora devuelve un único diccionario con el precio Ungraded
-    card_data = extract_ungraded_card_data(input_edition, input_card_name, input_card_number)
+        if input_edition == "" or input_card_name == "" or input_card_number == "":
+            input_edition = "Pokemon Ultra Prism"
+            input_card_name = "Frost Rotom"
+            input_card_number = "41"
+            print(f"\nExtrayendo datos para: {input_card_name} #{input_card_number} de la edición {input_edition}")
+        # La función ahora devuelve un único diccionario con el precio Ungraded
+            card_data = extract_ungraded_card_data(input_edition, input_card_name, input_card_number)
 
     if card_data:
         print("\n--- Datos Extraídos ---")
