@@ -137,11 +137,16 @@ def home():
             "endpoints": {
                 "/users": "Crear un nuevo usuario (POST)",
                 "/users/<wallet_address>": "Obtener datos de un usuario (GET)",
+                "/users/<wallet_address>/cards": "Obtener cartas de un usuario específico (GET)",
                 "/cards": "Obtener todas las cartas (GET)",
                 "/cards/<card_id>": "Obtener una carta específica (GET)",
+                "/cards/add-by-url": "Añadir carta usando URL de pricecharting (POST)",
+                "/cards/batch-add-by-urls": "Añadir múltiples cartas usando URLs (POST)",
+                "/pools": "Crear nuevo pool (POST) / Obtener todos los pools (GET)",
+                "/dashboard/pools": "Obtener pools para dashboard (GET)",
+                "/dashboard/user/<wallet_address>/summary": "Resumen del usuario para dashboard (GET)",
                 "/total_value": "Obtener el valor total de la colección (GET)",
-                "/update_prices": "Actualizar precios de cartas (POST)",
-                "/users/<wallet_address>/cards": "Obtener cartas de un usuario específico (GET)"
+                "/update_prices": "Actualizar precios de cartas (POST)"
             }
         }
     else:
@@ -264,5 +269,406 @@ def get_user_cards(wallet_address):
     except Exception as e:
         return jsonify({"error": f"Error al obtener las cartas del usuario: {e}"}), 500
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+@app.route('/cards/add-by-url', methods=['POST'])
+@require_api_key
+def add_card_by_url():
+    """
+    Añadir una nueva carta a la base de datos usando una URL de pricecharting.com
+    Espera JSON con: url, user_wallet, pool_id (opcional)
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "JSON requerido"}), 400
+        
+        url = data.get('url')
+        user_wallet = data.get('user_wallet')
+        pool_id = data.get('pool_id')  # Opcional
+        
+        if not url or not user_wallet:
+            return jsonify({"error": "url y user_wallet son requeridos"}), 400
+        
+        # Usar la función de extraer.py para obtener los datos de la carta
+        card_data = extraer.extract_ungraded_card_data_by_link(url)
+        
+        if not card_data:
+            return jsonify({"error": "No se pudieron extraer los datos de la carta desde la URL"}), 400
+        
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Verificar si el usuario existe
+        cur.execute("SELECT wallet_address FROM users WHERE wallet_address = %s;", (user_wallet,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Usuario no encontrado. Debe crear el usuario primero."}), 404
+        
+        # Verificar si el pool existe (si se proporcionó)
+        if pool_id:
+            cur.execute("SELECT id FROM card_pools WHERE id = %s;", (pool_id,))
+            if not cur.fetchone():
+                cur.close()
+                conn.close()
+                return jsonify({"error": "Pool no encontrado"}), 404
+        
+        # Insertar la carta en la base de datos
+        cur.execute(
+            """
+            INSERT INTO cards (name, card_id, edition, user_wallet, url, market_value, pool_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id;
+            """,
+            (
+                card_data['name'],
+                card_data['card_id'],
+                card_data['edition'],
+                user_wallet,
+                card_data['url'],
+                card_data['market_value'],
+                pool_id
+            )
+        )
+        
+        new_card_id = cur.fetchone()[0]
+        conn.commit()
+        
+        # Si se especificó un pool, también agregar a la tabla pool
+        if pool_id:
+            cur.execute(
+                "INSERT INTO pool (card_id, added_by) VALUES (%s, %s);",
+                (new_card_id, user_wallet)
+            )
+            conn.commit()
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "message": "Carta añadida exitosamente",
+            "card_id": new_card_id,
+            "card_data": card_data
+        }), 201
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al añadir carta: {e}"}), 500
+
+@app.route('/cards/batch-add-by-urls', methods=['POST'])
+@require_api_key
+def batch_add_cards_by_urls():
+    """
+    Añadir múltiples cartas a la base de datos usando URLs
+    Espera JSON con: urls (array), user_wallet, pool_id (opcional)
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "JSON requerido"}), 400
+        
+        urls = data.get('urls', [])
+        user_wallet = data.get('user_wallet')
+        pool_id = data.get('pool_id')
+        
+        if not urls or not user_wallet:
+            return jsonify({"error": "urls (array) y user_wallet son requeridos"}), 400
+        
+        if not isinstance(urls, list):
+            return jsonify({"error": "urls debe ser un array"}), 400
+        
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Verificar si el usuario existe
+        cur.execute("SELECT wallet_address FROM users WHERE wallet_address = %s;", (user_wallet,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Usuario no encontrado"}), 404
+        
+        # Verificar si el pool existe (si se proporcionó)
+        if pool_id:
+            cur.execute("SELECT id FROM card_pools WHERE id = %s;", (pool_id,))
+            if not cur.fetchone():
+                cur.close()
+                conn.close()
+                return jsonify({"error": "Pool no encontrado"}), 404
+        
+        added_cards = []
+        failed_cards = []
+        
+        for url in urls:
+            try:
+                # Extraer datos de la carta
+                card_data = extraer.extract_ungraded_card_data_by_link(url)
+                
+                if not card_data:
+                    failed_cards.append({"url": url, "error": "No se pudieron extraer los datos"})
+                    continue
+                
+                # Insertar en la base de datos
+                cur.execute(
+                    """
+                    INSERT INTO cards (name, card_id, edition, user_wallet, url, market_value, pool_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id;
+                    """,
+                    (
+                        card_data['name'],
+                        card_data['card_id'],
+                        card_data['edition'],
+                        user_wallet,
+                        card_data['url'],
+                        card_data['market_value'],
+                        pool_id
+                    )
+                )
+                
+                new_card_id = cur.fetchone()[0]
+                
+                # Si se especificó un pool, agregar a la tabla pool
+                if pool_id:
+                    cur.execute(
+                        "INSERT INTO pool (card_id, added_by) VALUES (%s, %s);",
+                        (new_card_id, user_wallet)
+                    )
+                
+                added_cards.append({
+                    "card_id": new_card_id,
+                    "card_data": card_data
+                })
+                
+            except Exception as e:
+                failed_cards.append({"url": url, "error": str(e)})
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "message": f"Procesadas {len(urls)} URLs. {len(added_cards)} cartas añadidas, {len(failed_cards)} fallaron.",
+            "added_cards": added_cards,
+            "failed_cards": failed_cards
+        }), 201
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al añadir cartas: {e}"}), 500
+
+# === ENDPOINTS PARA EL DASHBOARD ===
+
+@app.route('/dashboard/pools', methods=['GET'])
+@require_api_key
+def get_dashboard_pools():
+    """
+    Obtener información de pools para el dashboard
+    """
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Obtener pools con estadísticas agregadas
+        cur.execute("""
+            SELECT 
+                cp.id,
+                cp.name,
+                cp.description,
+                cp.TCG,
+                cp.created_at,
+                COUNT(DISTINCT c.id) as total_cards,
+                COUNT(DISTINCT c.user_wallet) as total_investors,
+                COALESCE(SUM(c.market_value), 0) as total_value,
+                COALESCE(AVG(c.market_value), 0) as avg_card_value
+            FROM card_pools cp
+            LEFT JOIN cards c ON cp.id = c.pool_id AND c.removed_at IS NULL
+            GROUP BY cp.id, cp.name, cp.description, cp.TCG, cp.created_at
+            ORDER BY cp.created_at DESC;
+        """)
+        
+        rows = cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        pools = []
+        
+        for row in rows:
+            pool_data = dict(zip(columns, row))
+            
+            # Calcular días activos
+            from datetime import datetime
+            created_date = pool_data['created_at']
+            if isinstance(created_date, str):
+                created_date = datetime.fromisoformat(created_date.replace('Z', '+00:00'))
+            days_active = (datetime.now() - created_date.replace(tzinfo=None)).days
+            
+            # Simular performance (esto puede ser calculado basado en datos históricos)
+            import random
+            performance_change = random.uniform(-5.0, 15.0)
+            
+            pools.append({
+                "id": pool_data['id'],
+                "name": pool_data['name'],
+                "description": pool_data['description'],
+                "tcg": pool_data['tcg'],
+                "value": float(pool_data['total_value']),
+                "total_cards": pool_data['total_cards'],
+                "investors": pool_data['total_investors'],
+                "daysActive": days_active,
+                "performance": f"{performance_change:+.1f}%",
+                "isPositive": performance_change > 0,
+                "avgCardValue": float(pool_data['avg_card_value']),
+                "gradient": f"from-blue-500 to-purple-600"  # Puedes personalizar esto
+            })
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify(pools), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener pools para dashboard: {e}"}), 500
+
+@app.route('/dashboard/user/<string:wallet_address>/summary', methods=['GET'])
+@require_api_key
+def get_user_dashboard_summary(wallet_address):
+    """
+    Obtener resumen del usuario para el dashboard
+    """
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Obtener inversiones del usuario por pool
+        cur.execute("""
+            SELECT 
+                cp.id as pool_id,
+                cp.name as pool_name,
+                COUNT(c.id) as user_cards,
+                COALESCE(SUM(c.market_value), 0) as user_investment,
+                (
+                    SELECT COALESCE(SUM(market_value), 0) 
+                    FROM cards 
+                    WHERE pool_id = cp.id AND removed_at IS NULL
+                ) as total_pool_value
+            FROM card_pools cp
+            LEFT JOIN cards c ON cp.id = c.pool_id 
+                AND c.user_wallet = %s 
+                AND c.removed_at IS NULL
+            GROUP BY cp.id, cp.name
+            HAVING COUNT(c.id) > 0
+            ORDER BY user_investment DESC;
+        """, (wallet_address,))
+        
+        rows = cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        user_pools = [dict(zip(columns, row)) for row in rows]
+        
+        # Calcular totales
+        total_investment = sum(float(pool['user_investment']) for pool in user_pools)
+        total_pool_value = sum(float(pool['total_pool_value']) for pool in user_pools)
+        
+        # Obtener total de cartas del usuario
+        cur.execute("""
+            SELECT COUNT(*) as total_cards
+            FROM cards 
+            WHERE user_wallet = %s AND removed_at IS NULL;
+        """, (wallet_address,))
+        
+        total_cards = cur.fetchone()[0]
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "totalInvestment": total_investment,
+            "totalPoolValue": total_pool_value,
+            "totalCards": total_cards,
+            "userPools": user_pools
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener resumen del usuario: {e}"}), 500
+
+@app.route('/pools', methods=['POST'])
+@require_api_key
+def create_pool():
+    """
+    Crear un nuevo pool de cartas
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "JSON requerido"}), 400
+        
+        name = data.get('name')
+        description = data.get('description', '')
+        tcg = data.get('tcg')
+        created_by = data.get('created_by')
+        
+        if not name or not tcg or not created_by:
+            return jsonify({"error": "name, tcg y created_by son requeridos"}), 400
+        
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Verificar si el usuario existe
+        cur.execute("SELECT wallet_address FROM users WHERE wallet_address = %s;", (created_by,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Usuario no encontrado"}), 404
+        
+        # Insertar nuevo pool
+        cur.execute(
+            """
+            INSERT INTO card_pools (name, description, TCG, created_by)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id;
+            """,
+            (name, description, tcg, created_by)
+        )
+        
+        new_pool_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "message": "Pool creado exitosamente",
+            "pool_id": new_pool_id
+        }), 201
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al crear pool: {e}"}), 500
+
+@app.route('/pools', methods=['GET'])
+@require_api_key
+def get_pools():
+    """
+    Obtener todos los pools
+    """
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT 
+                cp.*,
+                COUNT(c.id) as total_cards,
+                COALESCE(SUM(c.market_value), 0) as total_value
+            FROM card_pools cp
+            LEFT JOIN cards c ON cp.id = c.pool_id AND c.removed_at IS NULL
+            GROUP BY cp.id
+            ORDER BY cp.created_at DESC;
+        """)
+        
+        rows = cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        pools = [dict(zip(columns, row)) for row in rows]
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify(pools), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener pools: {e}"}), 500
