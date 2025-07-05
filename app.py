@@ -4,16 +4,38 @@ import os
 import psycopg2
 import extraer
 from functools import wraps
+import sys
 
 # filepath: /home/ignatus/Documentos/Github/WrapSell/backend_local/app.py
 
+
+
 app = Flask(__name__)
-DATABASE_URL = os.getenv('DATABASE_URL')
-url = urllib.parse.urlparse(DATABASE_URL)
-TABLE_NAME = "cards"  # Cambia esto por el nombre real de tu tabla
+try:
+    DATABASE_URL = os.getenv('DATABASE_URL')
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL no está definido")
+    url = urllib.parse.urlparse(DATABASE_URL)
+    # Prueba de conexión a la base de datos
+    conn_test = psycopg2.connect(
+        dbname=url.path[1:], user=url.username,
+        password=url.password, host=url.hostname,
+        port=url.port
+    )
+    conn_test.close()
+    print("Conexión a la base de datos exitosa")
+except Exception as e:
+    print(f"Error al conectar a la base de datos: {e}")
+    sys.exit(1)
 
 # Clave secreta para la API
-API_SECRET_KEY = os.getenv('API_SECRET_KEY', 'your-default-secret-key-here')
+API_SECRET_KEY = os.getenv('API_SECRET_KEY')
+if not API_SECRET_KEY:
+    print("API_SECRET_KEY no está definida")
+else:
+    print(f"API_SECRET_KEY: {API_SECRET_KEY}")
+
+TABLE_NAME = "cards"  # Cambia esto por el nombre real de tu tabla
 
 DB_URL = f"dbname={url.path[1:]} user={url.username} password={url.password} host={url.hostname} port={url.port}"
 
@@ -102,21 +124,34 @@ def get_user(wallet_address):
 
 
 @app.route('/', methods=['GET'])
+@require_api_key
 def home():
     """
-    Página principal - Muestra información sobre las rutas disponibles
+    Página principal - Muestra información sobre las rutas disponibles.
+    Requiere credenciales (X-API-Key o api_key).
     """
-    return jsonify({
-        "message": "Bienvenido a WrapSell API",
-        "authentication": "Requiere X-API-Key header o api_key parameter",
-        "endpoints": {
-            "GET /cards": "Obtener todas las cartas",
-            "GET /cards/<id>": "Obtener una carta específica",
-            "GET /total_value": "Obtener valor total de la colección",
-            "POST /update_prices": "Actualizar precios de las cartas",
-            "GET /users/<wallet_address>/cards": "Obtener cartas de un usuario específico"
+    valid_key = request.headers.get('X-API-Key') or request.args.get('api_key')
+    if request.method == 'GET' and valid_key:
+        response = {
+            "message": "Bienvenido a la API de WrapSell",
+            "endpoints": {
+                "/users": "Crear un nuevo usuario (POST)",
+                "/users/<wallet_address>": "Obtener datos de un usuario (GET)",
+                "/cards": "Obtener todas las cartas (GET)",
+                "/cards/<card_id>": "Obtener una carta específica (GET)",
+                "/total_value": "Obtener el valor total de la colección (GET)",
+                "/update_prices": "Actualizar precios de cartas (POST)",
+                "/users/<wallet_address>/cards": "Obtener cartas de un usuario específico (GET)"
+            }
         }
-    }), 200
+    else:
+        response = {
+            "message": "Bienvenido a la API de WrapSell, por favor proporciona una clave API válida en los headers (X-API-Key) o como parámetro de consulta (api_key).",
+            "endpoints": {
+                "please": "provide a valid API key in the headers (X-API-Key) or as a query parameter (api_key)."
+            }
+        }
+    return jsonify(response), 200
 
 @app.route('/cards', methods=['GET'])
 @require_api_key

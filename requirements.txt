@@ -1,6 +1,13 @@
+# HTTP + scraping
 requests
 beautifulsoup4
-psycopg2
-opencv-python
-psycopg2
-flask
+
+# Flask web framework
+Flask
+gunicorn
+
+# Postgres driver (use the binary wheel on Heroku)
+psycopg2-binary
+
+# OpenCV (headless build, no GUI deps)
+opencv-python-headless
