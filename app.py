@@ -20,6 +20,15 @@ def initialize_database():
         with open(script_path, 'r', encoding='utf-8') as f:
             sql_script = f.read()
         
+        # Leer el archivo de migración
+        migration_path = os.path.join(os.path.dirname(__file__), '02_migration.sql')
+        migration_script = ""
+        try:
+            with open(migration_path, 'r', encoding='utf-8') as f:
+                migration_script = f.read()
+        except FileNotFoundError:
+            print("Advertencia: Archivo de migración 02_migration.sql no encontrado")
+        
         # Conectar a la base de datos
         DATABASE_URL = os.getenv('DATABASE_URL')
         if not DATABASE_URL:
@@ -32,14 +41,22 @@ def initialize_database():
             port=url.port
         )
         
-        # Ejecutar el script SQL
+        # Ejecutar el script SQL principal
         cur = conn.cursor()
         cur.execute(sql_script)
         conn.commit()
+        print("✅ Script principal 01_init.sql ejecutado")
+        
+        # Ejecutar migración si existe
+        if migration_script:
+            cur.execute(migration_script)
+            conn.commit()
+            print("✅ Script de migración 02_migration.sql ejecutado")
+        
         cur.close()
         conn.close()
         
-        print("Base de datos inicializada correctamente - Tablas creadas si no existían")
+        print("Base de datos inicializada correctamente - Tablas creadas/migradas si no existían")
         return True
         
     except FileNotFoundError:
@@ -702,6 +719,7 @@ def create_pool():
         
     except Exception as e:
         return jsonify({"error": f"Error al crear pool: {e}"}), 500
+        return jsonify({"error": f"Error al crear pool: {e}"}), 500
 
 @app.route('/pools', methods=['GET'])
 @require_api_key
@@ -1333,3 +1351,316 @@ def admin_batch_update_prices():
         
     except Exception as e:
         return jsonify({"error": f"Error al actualizar precios: {e}"}), 500
+
+# === ENDPOINTS PARA CONTRATOS INTELIGENTES ===
+
+@app.route('/contracts/wrap-pools', methods=['GET'])
+@require_api_key
+def get_wrap_pools():
+    """
+    Obtener todos los contratos WrapPool
+    """
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT wp.*, 
+                   COUNT(DISTINCT ws.contract_address) as total_wrapsells,
+                   COALESCE(SUM(ws.total_cards_deposited), 0) as total_cards
+            FROM wrap_pools wp
+            LEFT JOIN wrap_sells ws ON wp.contract_address = ws.wrap_pool_address
+            GROUP BY wp.id, wp.contract_address, wp.name, wp.symbol, wp.owner_wallet,
+                     wp.collateralization_ratio, wp.total_supply, wp.total_collateral_value,
+                     wp.is_healthy, wp.created_at, wp.updated_at
+            ORDER BY wp.created_at DESC;
+        """)
+        
+        rows = cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        pools = [dict(zip(columns, row)) for row in rows]
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify(pools), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener WrapPools: {e}"}), 500
+
+@app.route('/contracts/wrap-pools', methods=['POST'])
+@require_api_key
+def create_wrap_pool():
+    """
+    Registrar un nuevo contrato WrapPool en la base de datos
+    Espera: contract_address, name, symbol, owner_wallet, collateralization_ratio
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "JSON requerido"}), 400
+        
+        contract_address = data.get('contract_address')
+        name = data.get('name')
+        symbol = data.get('symbol')
+        owner_wallet = data.get('owner_wallet')
+        collateralization_ratio = data.get('collateralization_ratio', 150)
+        
+        if not all([contract_address, name, symbol, owner_wallet]):
+            return jsonify({"error": "contract_address, name, symbol y owner_wallet son requeridos"}), 400
+        
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Verificar que el owner existe
+        cur.execute("SELECT wallet_address FROM users WHERE wallet_address = %s;", (owner_wallet,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Owner wallet no encontrada"}), 404
+        
+        # Insertar WrapPool
+        cur.execute("""
+            INSERT INTO wrap_pools (contract_address, name, symbol, owner_wallet, collateralization_ratio)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id;
+        """, (contract_address, name, symbol, owner_wallet, collateralization_ratio))
+        
+        pool_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "message": "WrapPool registrado exitosamente",
+            "pool_id": pool_id,
+            "contract_address": contract_address
+        }), 201
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al crear WrapPool: {e}"}), 500
+
+@app.route('/contracts/wrap-sells', methods=['GET'])
+@require_api_key
+def get_wrap_sells():
+    """
+    Obtener todos los contratos WrapSell
+    """
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT ws.*, wp.name as pool_name, wp.symbol as pool_symbol
+            FROM wrap_sells ws
+            LEFT JOIN wrap_pools wp ON ws.wrap_pool_address = wp.contract_address
+            ORDER BY ws.created_at DESC;
+        """)
+        
+        rows = cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        sells = [dict(zip(columns, row)) for row in rows]
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify(sells), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener WrapSells: {e}"}), 500
+
+@app.route('/contracts/wrap-sells', methods=['POST'])
+@require_api_key
+def create_wrap_sell():
+    """
+    Registrar un nuevo contrato WrapSell en la base de datos
+    Espera: contract_address, name, symbol, card_id, card_name, rarity, 
+            estimated_value_per_card, owner_wallet, wrap_pool_address
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "JSON requerido"}), 400
+        
+        required_fields = ['contract_address', 'name', 'symbol', 'card_id', 'card_name', 
+                          'rarity', 'estimated_value_per_card', 'owner_wallet']
+        
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({"error": f"{field} es requerido"}), 400
+        
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Verificar que el owner existe
+        cur.execute("SELECT wallet_address FROM users WHERE wallet_address = %s;", (data['owner_wallet'],))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Owner wallet no encontrada"}), 404
+        
+        # Verificar que el wrap_pool existe (si se proporciona)
+        wrap_pool_address = data.get('wrap_pool_address')
+        if wrap_pool_address:
+            cur.execute("SELECT contract_address FROM wrap_pools WHERE contract_address = %s;", (wrap_pool_address,))
+            if not cur.fetchone():
+                cur.close()
+                conn.close()
+                return jsonify({"error": "WrapPool no encontrado"}), 404
+        
+        # Insertar WrapSell
+        cur.execute("""
+            INSERT INTO wrap_sells (contract_address, name, symbol, card_id, card_name, rarity,
+                                   estimated_value_per_card, owner_wallet, wrap_pool_address)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id;
+        """, (
+            data['contract_address'], data['name'], data['symbol'], data['card_id'],
+            data['card_name'], data['rarity'], data['estimated_value_per_card'],
+            data['owner_wallet'], wrap_pool_address
+        ))
+        
+        sell_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "message": "WrapSell registrado exitosamente",
+            "sell_id": sell_id,
+            "contract_address": data['contract_address']
+        }), 201
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al crear WrapSell: {e}"}), 500
+
+@app.route('/contracts/wrap-pools/<string:contract_address>/summary', methods=['GET'])
+@require_api_key
+def get_wrap_pool_summary(contract_address):
+    """
+    Obtener resumen detallado de un WrapPool específico
+    """
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Información básica del pool
+        cur.execute("SELECT * FROM wrap_pools WHERE contract_address = %s;", (contract_address,))
+        pool_data = cur.fetchone()
+        
+        if not pool_data:
+            cur.close()
+            conn.close()
+            return jsonify({"error": "WrapPool no encontrado"}), 404
+        
+        pool_columns = [desc[0] for desc in cur.description]
+        pool_info = dict(zip(pool_columns, pool_data))
+        
+        # WrapSells asociados
+        cur.execute("""
+            SELECT ws.*, COUNT(cd.user_wallet) as total_depositors,
+                   COALESCE(SUM(cd.cards_deposited), 0) as total_cards_deposited,
+                   COALESCE(SUM(cd.tokens_received), 0) as total_tokens_issued
+            FROM wrap_sells ws
+            LEFT JOIN card_deposits cd ON ws.contract_address = cd.wrap_sell_address
+            WHERE ws.wrap_pool_address = %s
+            GROUP BY ws.id, ws.contract_address, ws.name, ws.symbol, ws.card_id,
+                     ws.card_name, ws.rarity, ws.estimated_value_per_card,
+                     ws.owner_wallet, ws.wrap_pool_address, ws.total_supply,
+                     ws.total_cards_deposited, ws.total_tokens_issued,
+                     ws.created_at, ws.updated_at;
+        """, (contract_address,))
+        
+        wrapsells_data = cur.fetchall()
+        wrapsells_columns = [desc[0] for desc in cur.description]
+        wrapsells = [dict(zip(wrapsells_columns, row)) for row in wrapsells_data]
+        
+        # Transacciones recientes
+        cur.execute("""
+            SELECT st.* FROM stablecoin_transactions st
+            WHERE st.wrap_pool_address = %s
+            ORDER BY st.transaction_date DESC
+            LIMIT 10;
+        """, (contract_address,))
+        
+        transactions_data = cur.fetchall()
+        transactions_columns = [desc[0] for desc in cur.description]
+        recent_transactions = [dict(zip(transactions_columns, row)) for row in transactions_data]
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "pool_info": pool_info,
+            "wrapsells": wrapsells,
+            "recent_transactions": recent_transactions,
+            "summary": {
+                "total_wrapsells": len(wrapsells),
+                "total_unique_cards": len(set(ws['card_name'] for ws in wrapsells)),
+                "total_depositors": sum(ws['total_depositors'] for ws in wrapsells),
+                "total_cards_in_system": sum(ws['total_cards_deposited'] for ws in wrapsells)
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener resumen del WrapPool: {e}"}), 500
+
+@app.route('/contracts/user/<string:wallet_address>/positions', methods=['GET'])
+@require_api_key
+def get_user_contract_positions(wallet_address):
+    """
+    Obtener todas las posiciones de un usuario en contratos (depósitos, tokens, etc)
+    """
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Depósitos en WrapSells
+        cur.execute("""
+            SELECT cd.*, ws.name, ws.symbol, ws.card_name, wp.name as pool_name
+            FROM card_deposits cd
+            JOIN wrap_sells ws ON cd.wrap_sell_address = ws.contract_address
+            LEFT JOIN wrap_pools wp ON ws.wrap_pool_address = wp.contract_address
+            WHERE cd.user_wallet = %s
+            ORDER BY cd.created_at DESC;
+        """, (wallet_address,))
+        
+        deposits_data = cur.fetchall()
+        deposits_columns = [desc[0] for desc in cur.description]
+        card_deposits = [dict(zip(deposits_columns, row)) for row in deposits_data]
+        
+        # Transacciones de stablecoins
+        cur.execute("""
+            SELECT st.*, wp.name, wp.symbol
+            FROM stablecoin_transactions st
+            JOIN wrap_pools wp ON st.wrap_pool_address = wp.contract_address
+            WHERE st.user_wallet = %s
+            ORDER BY st.transaction_date DESC
+            LIMIT 20;
+        """, (wallet_address,))
+        
+        stablecoin_data = cur.fetchall()
+        stablecoin_columns = [desc[0] for desc in cur.description]
+        stablecoin_transactions = [dict(zip(stablecoin_columns, row)) for row in stablecoin_data]
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "card_deposits": card_deposits,
+            "stablecoin_transactions": stablecoin_transactions,
+            "summary": {
+                "total_deposits": len(card_deposits),
+                "total_cards_deposited": sum(cd['cards_deposited'] for cd in card_deposits),
+                "total_tokens_received": sum(cd['tokens_received'] for cd in card_deposits),
+                "unique_contracts": len(set(cd['wrap_sell_address'] for cd in card_deposits))
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener posiciones del usuario: {e}"}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
