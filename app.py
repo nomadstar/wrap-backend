@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import urllib.parse
 import os
 import psycopg2
@@ -50,6 +51,15 @@ def initialize_database():
 
 
 app = Flask(__name__)
+
+# Configurar CORS para permitir solicitudes desde el frontend
+CORS(app, origins=[
+    "http://localhost:3000",  # Desarrollo local
+    "https://wrap-sell.vercel.app",  # Producción en Vercel (si aplica)
+    "https://*.vercel.app",  # Cualquier subdominio de Vercel
+    "*"  # Permitir todos los orígenes (solo para desarrollo)
+])
+
 try:
     DATABASE_URL = os.getenv('DATABASE_URL')
     if not DATABASE_URL:

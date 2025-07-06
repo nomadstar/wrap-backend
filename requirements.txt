@@ -4,6 +4,7 @@ beautifulsoup4
 
 # Flask web framework
 Flask
+flask-cors
 gunicorn
 
 # Postgres driver (use the binary wheel on Heroku)
