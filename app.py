@@ -146,7 +146,16 @@ def home():
                 "/dashboard/pools": "Obtener pools para dashboard (GET)",
                 "/dashboard/user/<wallet_address>/summary": "Resumen del usuario para dashboard (GET)",
                 "/total_value": "Obtener el valor total de la colección (GET)",
-                "/update_prices": "Actualizar precios de cartas (POST)"
+                "/update_prices": "Actualizar precios de cartas (POST)",
+                "--- ENDPOINTS ADMINISTRATIVOS ---": "Requieren wallet autorizada",
+                "/cards_admin/add-by-url": "[ADMIN] Añadir carta por URL (POST)",
+                "/cards_admin/add-manual": "[ADMIN] Añadir carta manualmente (POST)",
+                "/cards_admin/edit/<card_id>": "[ADMIN] Editar carta existente (PUT)",
+                "/cards_admin/remove/<card_id>": "[ADMIN] Marcar carta como removida (DELETE)",
+                "/cards_admin/restore/<card_id>": "[ADMIN] Restaurar carta removida (PUT)",
+                "/cards_admin/delete-permanent/<card_id>": "[ADMIN] Eliminar permanentemente (DELETE)",
+                "/cards_admin/move-to-pool": "[ADMIN] Mover cartas entre pools (PUT)",
+                "/cards_admin/batch-update-prices": "[ADMIN] Actualizar precios masivamente (PUT)"
             }
         }
     else:
@@ -198,7 +207,8 @@ def get_total_value():
     try:
         conn = psycopg2.connect(DB_URL)
         cur = conn.cursor()
-        cur.execute("SELECT COALESCE(SUM(market_value), 0) FROM cards WHERE in_pool = TRUE;")
+        # Calcular el valor total de todas las cartas activas (no removidas)
+        cur.execute("SELECT COALESCE(SUM(market_value), 0) FROM cards WHERE removed_at IS NULL;")
         total = cur.fetchone()[0]
         cur.close()
         conn.close()
@@ -212,7 +222,8 @@ def update_prices_endpoint():
     try:
         conn = psycopg2.connect(DB_URL)
         cur = conn.cursor()
-        cur.execute("SELECT id, edition, name, card_id FROM cards WHERE in_pool = TRUE;")
+        # Actualizar precios de todas las cartas activas (no removidas)
+        cur.execute("SELECT id, edition, name, card_id FROM cards WHERE removed_at IS NULL;")
         cards = cur.fetchall()
         updated = 0
         not_updated = []
@@ -220,12 +231,11 @@ def update_prices_endpoint():
         for card in cards:
             card_db_id, edition, name, card_number = card
             card_data = extraer.extract_ungraded_card_data(edition, name, card_number)
-            if card_data and card_data["market_value"] != "N/A":
-                new_value = str(card_data["market_value"]).replace("$", "").replace(",", "")
+            if card_data and card_data["market_value"] is not None:
                 try:
                     cur.execute(
                         "UPDATE cards SET market_value = %s WHERE id = %s;",
-                        (new_value, card_db_id)
+                        (card_data["market_value"], card_db_id)
                     )
                     conn.commit()
                     updated += 1
@@ -672,3 +682,601 @@ def get_pools():
         
     except Exception as e:
         return jsonify({"error": f"Error al obtener pools: {e}"}), 500
+
+# Lista de wallets administrativas autorizadas desde variable de entorno
+ADMIN_WALLETS_ENV = os.getenv('ADMIN_WALLETS', "")
+if ADMIN_WALLETS_ENV:
+    ADMIN_WALLETS = [wallet.strip() for wallet in ADMIN_WALLETS_ENV.split(',')]
+else:
+    # Wallets por defecto si no se especifica en .env
+    ADMIN_WALLETS = [
+        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",  # Wallet admin principal
+        "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",  # Wallet admin secundaria
+    ]
+
+print(f"Wallets administrativas autorizadas: {ADMIN_WALLETS}")
+
+def require_admin_wallet(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Verificar API key primero
+        api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
+        if not api_key or api_key != API_SECRET_KEY:
+            return jsonify({"error": "API key requerida o inválida"}), 401
+        
+        # Verificar wallet administrativa
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "JSON requerido con wallet_address"}), 400
+        
+        admin_wallet = data.get('admin_wallet')
+        if not admin_wallet or admin_wallet not in ADMIN_WALLETS:
+            return jsonify({"error": "Wallet administrativa no autorizada"}), 403
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+# === ENDPOINTS ADMINISTRATIVOS PARA GESTIÓN DE CARTAS ===
+
+@app.route('/cards_admin/add-by-url', methods=['POST'])
+@require_admin_wallet
+def admin_add_card_by_url():
+    """
+    [ADMIN] Añadir una nueva carta usando URL de pricecharting.com
+    Espera JSON con: admin_wallet, url, user_wallet, pool_id (opcional)
+    """
+    try:
+        data = request.get_json()
+        
+        url = data.get('url')
+        user_wallet = data.get('user_wallet')
+        pool_id = data.get('pool_id')
+        admin_wallet = data.get('admin_wallet')
+        
+        if not url or not user_wallet:
+            return jsonify({"error": "url y user_wallet son requeridos"}), 400
+        
+        # Extraer datos de la carta
+        card_data = extraer.extract_ungraded_card_data_by_link(url)
+        
+        if not card_data:
+            return jsonify({"error": "No se pudieron extraer los datos de la carta desde la URL"}), 400
+        
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Verificar si el usuario existe
+        cur.execute("SELECT wallet_address FROM users WHERE wallet_address = %s;", (user_wallet,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Usuario no encontrado. Debe crear el usuario primero."}), 404
+        
+        # Verificar si el pool existe (si se proporcionó)
+        if pool_id:
+            cur.execute("SELECT id FROM card_pools WHERE id = %s;", (pool_id,))
+            if not cur.fetchone():
+                cur.close()
+                conn.close()
+                return jsonify({"error": "Pool no encontrado"}), 404
+        
+        # Insertar la carta
+        cur.execute(
+            """
+            INSERT INTO cards (name, card_id, edition, user_wallet, url, market_value, pool_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id;
+            """,
+            (
+                card_data['name'],
+                card_data['card_id'],
+                card_data['edition'],
+                user_wallet,
+                card_data['url'],
+                card_data['market_value'],
+                pool_id
+            )
+        )
+        
+        new_card_id = cur.fetchone()[0]
+        conn.commit()
+        
+        # Si se especificó un pool, agregar a la tabla pool
+        if pool_id:
+            cur.execute(
+                "INSERT INTO pool (card_id, added_by) VALUES (%s, %s);",
+                (new_card_id, admin_wallet)
+            )
+            conn.commit()
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "message": "Carta añadida exitosamente por administrador",
+            "card_id": new_card_id,
+            "card_data": card_data,
+            "admin_action": f"Añadida por {admin_wallet}"
+        }), 201
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al añadir carta: {e}"}), 500
+
+@app.route('/cards_admin/add-manual', methods=['POST'])
+@require_admin_wallet
+def admin_add_card_manual():
+    """
+    [ADMIN] Añadir carta manualmente especificando todos los datos
+    Espera JSON con: admin_wallet, name, card_id, edition, user_wallet, market_value, url (opcional), pool_id (opcional)
+    """
+    try:
+        data = request.get_json()
+        
+        name = data.get('name')
+        card_id = data.get('card_id')
+        edition = data.get('edition')
+        user_wallet = data.get('user_wallet')
+        market_value = data.get('market_value')
+        url = data.get('url')
+        pool_id = data.get('pool_id')
+        admin_wallet = data.get('admin_wallet')
+        
+        if not all([name, card_id, edition, user_wallet]):
+            return jsonify({"error": "name, card_id, edition y user_wallet son requeridos"}), 400
+        
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Verificar si el usuario existe
+        cur.execute("SELECT wallet_address FROM users WHERE wallet_address = %s;", (user_wallet,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Usuario no encontrado"}), 404
+        
+        # Verificar si el pool existe (si se proporcionó)
+        if pool_id:
+            cur.execute("SELECT id FROM card_pools WHERE id = %s;", (pool_id,))
+            if not cur.fetchone():
+                cur.close()
+                conn.close()
+                return jsonify({"error": "Pool no encontrado"}), 404
+        
+        # Insertar la carta
+        cur.execute(
+            """
+            INSERT INTO cards (name, card_id, edition, user_wallet, url, market_value, pool_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id;
+            """,
+            (name, card_id, edition, user_wallet, url, market_value, pool_id)
+        )
+        
+        new_card_id = cur.fetchone()[0]
+        conn.commit()
+        
+        # Si se especificó un pool, agregar a la tabla pool
+        if pool_id:
+            cur.execute(
+                "INSERT INTO pool (card_id, added_by) VALUES (%s, %s);",
+                (new_card_id, admin_wallet)
+            )
+            conn.commit()
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "message": "Carta añadida manualmente por administrador",
+            "card_id": new_card_id,
+            "admin_action": f"Añadida manualmente por {admin_wallet}"
+        }), 201
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al añadir carta manualmente: {e}"}), 500
+
+@app.route('/cards_admin/edit/<int:card_id>', methods=['PUT'])
+@require_admin_wallet
+def admin_edit_card(card_id):
+    """
+    [ADMIN] Editar una carta existente
+    Espera JSON con: admin_wallet y los campos a modificar
+    """
+    try:
+        data = request.get_json()
+        admin_wallet = data.get('admin_wallet')
+        
+        # Campos editables
+        name = data.get('name')
+        card_id_value = data.get('card_id')
+        edition = data.get('edition')
+        market_value = data.get('market_value')
+        url = data.get('url')
+        user_wallet = data.get('user_wallet')
+        pool_id = data.get('pool_id')
+        
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Verificar que la carta existe
+        cur.execute("SELECT id FROM cards WHERE id = %s;", (card_id,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Carta no encontrada"}), 404
+        
+        # Construir consulta de actualización dinámicamente
+        update_fields = []
+        update_values = []
+        
+        if name is not None:
+            update_fields.append("name = %s")
+            update_values.append(name)
+        
+        if card_id_value is not None:
+            update_fields.append("card_id = %s")
+            update_values.append(card_id_value)
+        
+        if edition is not None:
+            update_fields.append("edition = %s")
+            update_values.append(edition)
+        
+        if market_value is not None:
+            update_fields.append("market_value = %s")
+            update_values.append(market_value)
+        
+        if url is not None:
+            update_fields.append("url = %s")
+            update_values.append(url)
+        
+        if user_wallet is not None:
+            # Verificar que el nuevo usuario existe
+            cur.execute("SELECT wallet_address FROM users WHERE wallet_address = %s;", (user_wallet,))
+            if not cur.fetchone():
+                cur.close()
+                conn.close()
+                return jsonify({"error": "Nuevo usuario no encontrado"}), 404
+            update_fields.append("user_wallet = %s")
+            update_values.append(user_wallet)
+        
+        if pool_id is not None:
+            if pool_id == "":  # Remover de pool
+                update_fields.append("pool_id = NULL")
+            else:
+                # Verificar que el pool existe
+                cur.execute("SELECT id FROM card_pools WHERE id = %s;", (pool_id,))
+                if not cur.fetchone():
+                    cur.close()
+                    conn.close()
+                    return jsonify({"error": "Pool no encontrado"}), 404
+                update_fields.append("pool_id = %s")
+                update_values.append(pool_id)
+        
+        if not update_fields:
+            return jsonify({"error": "No hay campos para actualizar"}), 400
+        
+        # Ejecutar actualización
+        update_values.append(card_id)
+        query = f"UPDATE cards SET {', '.join(update_fields)} WHERE id = %s;"
+        cur.execute(query, update_values)
+        conn.commit()
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "message": "Carta actualizada exitosamente",
+            "card_id": card_id,
+            "admin_action": f"Editada por {admin_wallet}"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al editar carta: {e}"}), 500
+
+@app.route('/cards_admin/remove/<int:card_id>', methods=['DELETE'])
+@require_admin_wallet
+def admin_remove_card(card_id):
+    """
+    [ADMIN] Marcar carta como removida (soft delete)
+    Espera JSON con: admin_wallet
+    """
+    try:
+        data = request.get_json()
+        admin_wallet = data.get('admin_wallet')
+        
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Verificar que la carta existe y no está ya removida
+        cur.execute("SELECT id, removed_at FROM cards WHERE id = %s;", (card_id,))
+        card_info = cur.fetchone()
+        
+        if not card_info:
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Carta no encontrada"}), 404
+        
+        if card_info[1] is not None:  # Ya está removida
+            cur.close()
+            conn.close()
+            return jsonify({"error": "La carta ya está marcada como removida"}), 400
+        
+        # Marcar como removida
+        from datetime import datetime
+        cur.execute(
+            "UPDATE cards SET removed_at = %s WHERE id = %s;",
+            (datetime.now(), card_id)
+        )
+        
+        # También marcar en la tabla pool si existe
+        cur.execute(
+            "UPDATE pool SET removed_at = %s WHERE card_id = %s AND removed_at IS NULL;",
+            (datetime.now(), card_id)
+        )
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "message": "Carta marcada como removida exitosamente",
+            "card_id": card_id,
+            "admin_action": f"Removida por {admin_wallet}"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al remover carta: {e}"}), 500
+
+@app.route('/cards_admin/restore/<int:card_id>', methods=['PUT'])
+@require_admin_wallet
+def admin_restore_card(card_id):
+    """
+    [ADMIN] Restaurar carta removida
+    Espera JSON con: admin_wallet
+    """
+    try:
+        data = request.get_json()
+        admin_wallet = data.get('admin_wallet')
+        
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Verificar que la carta existe y está removida
+        cur.execute("SELECT id, removed_at FROM cards WHERE id = %s;", (card_id,))
+        card_info = cur.fetchone()
+        
+        if not card_info:
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Carta no encontrada"}), 404
+        
+        if card_info[1] is None:  # No está removida
+            cur.close()
+            conn.close()
+            return jsonify({"error": "La carta no está marcada como removida"}), 400
+        
+        # Restaurar carta
+        cur.execute(
+            "UPDATE cards SET removed_at = NULL WHERE id = %s;",
+            (card_id,)
+        )
+        
+        # También restaurar en la tabla pool si existe
+        cur.execute(
+            "UPDATE pool SET removed_at = NULL WHERE card_id = %s;",
+            (card_id,)
+        )
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "message": "Carta restaurada exitosamente",
+            "card_id": card_id,
+            "admin_action": f"Restaurada por {admin_wallet}"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al restaurar carta: {e}"}), 500
+
+@app.route('/cards_admin/delete-permanent/<int:card_id>', methods=['DELETE'])
+@require_admin_wallet
+def admin_delete_card_permanent(card_id):
+    """
+    [ADMIN] Eliminar carta permanentemente de la base de datos
+    ADVERTENCIA: Esta acción es irreversible
+    Espera JSON con: admin_wallet, confirm: true
+    """
+    try:
+        data = request.get_json()
+        admin_wallet = data.get('admin_wallet')
+        confirm = data.get('confirm')
+        
+        if not confirm:
+            return jsonify({"error": "Debe confirmar la eliminación permanente con 'confirm: true'"}), 400
+        
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Verificar que la carta existe
+        cur.execute("SELECT id FROM cards WHERE id = %s;", (card_id,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Carta no encontrada"}), 404
+        
+        # Eliminar de la tabla pool primero (clave foránea)
+        cur.execute("DELETE FROM pool WHERE card_id = %s;", (card_id,))
+        
+        # Eliminar transacciones relacionadas
+        cur.execute("DELETE FROM transactions WHERE card_id = %s;", (card_id,))
+        
+        # Eliminar la carta
+        cur.execute("DELETE FROM cards WHERE id = %s;", (card_id,))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "message": "Carta eliminada permanentemente",
+            "card_id": card_id,
+            "admin_action": f"ELIMINACIÓN PERMANENTE por {admin_wallet}",
+            "warning": "Esta acción es irreversible"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al eliminar carta permanentemente: {e}"}), 500
+
+@app.route('/cards_admin/move-to-pool', methods=['PUT'])
+@require_admin_wallet
+def admin_move_card_to_pool():
+    """
+    [ADMIN] Mover carta(s) a un pool diferente
+    Espera JSON con: admin_wallet, card_ids (array), new_pool_id
+    """
+    try:
+        data = request.get_json()
+        admin_wallet = data.get('admin_wallet')
+        card_ids = data.get('card_ids', [])
+        new_pool_id = data.get('new_pool_id')
+        
+        if not card_ids or not isinstance(card_ids, list):
+            return jsonify({"error": "card_ids debe ser un array con al menos un ID"}), 400
+        
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Verificar que el nuevo pool existe (si no es None)
+        if new_pool_id is not None:
+            cur.execute("SELECT id FROM card_pools WHERE id = %s;", (new_pool_id,))
+            if not cur.fetchone():
+                cur.close()
+                conn.close()
+                return jsonify({"error": "Nuevo pool no encontrado"}), 404
+        
+        moved_cards = []
+        failed_cards = []
+        
+        for card_id in card_ids:
+            try:
+                # Verificar que la carta existe
+                cur.execute("SELECT id, pool_id FROM cards WHERE id = %s;", (card_id,))
+                card_info = cur.fetchone()
+                
+                if not card_info:
+                    failed_cards.append({"card_id": card_id, "error": "Carta no encontrada"})
+                    continue
+                
+                old_pool_id = card_info[1]
+                
+                # Actualizar pool_id en la tabla cards
+                cur.execute(
+                    "UPDATE cards SET pool_id = %s WHERE id = %s;",
+                    (new_pool_id, card_id)
+                )
+                
+                # Manejar tabla pool
+                if old_pool_id is not None:
+                    # Marcar como removida de pool anterior
+                    cur.execute(
+                        "UPDATE pool SET removed_at = NOW() WHERE card_id = %s AND removed_at IS NULL;",
+                        (card_id,)
+                    )
+                
+                if new_pool_id is not None:
+                    # Agregar al nuevo pool
+                    cur.execute(
+                        "INSERT INTO pool (card_id, added_by) VALUES (%s, %s);",
+                        (card_id, admin_wallet)
+                    )
+                
+                moved_cards.append({
+                    "card_id": card_id,
+                    "old_pool_id": old_pool_id,
+                    "new_pool_id": new_pool_id
+                })
+                
+            except Exception as e:
+                failed_cards.append({"card_id": card_id, "error": str(e)})
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "message": f"{len(moved_cards)} cartas movidas exitosamente",
+            "moved_cards": moved_cards,
+            "failed_cards": failed_cards,
+            "admin_action": f"Movidas por {admin_wallet}"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al mover cartas: {e}"}), 500
+
+@app.route('/cards_admin/batch-update-prices', methods=['PUT'])
+@require_admin_wallet
+def admin_batch_update_prices():
+    """
+    [ADMIN] Actualizar precios de cartas específicas o todas
+    Espera JSON con: admin_wallet, card_ids (opcional, si no se proporciona actualiza todas)
+    """
+    try:
+        data = request.get_json()
+        admin_wallet = data.get('admin_wallet')
+        card_ids = data.get('card_ids')  # Opcional
+        
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Construir consulta según si se especificaron IDs
+        if card_ids and isinstance(card_ids, list):
+            placeholders = ','.join(['%s'] * len(card_ids))
+            query = f"SELECT id, edition, name, card_id FROM cards WHERE id IN ({placeholders}) AND removed_at IS NULL;"
+            cur.execute(query, card_ids)
+        else:
+            cur.execute("SELECT id, edition, name, card_id FROM cards WHERE removed_at IS NULL;")
+        
+        cards = cur.fetchall()
+        updated = 0
+        not_updated = []
+        
+        for card in cards:
+            card_db_id, edition, name, card_number = card
+            
+            try:
+                # Usar la función que construye la URL a partir de propiedades
+                card_data = extraer.extract_ungraded_card_data(edition, name, card_number)
+                
+                if card_data and card_data["market_value"] is not None:
+                    cur.execute(
+                        "UPDATE cards SET market_value = %s WHERE id = %s;",
+                        (card_data["market_value"], card_db_id)
+                    )
+                    updated += 1
+                else:
+                    not_updated.append({
+                        "card_id": card_db_id,
+                        "error": "No se pudo obtener precio actualizado"
+                    })
+            except Exception as e:
+                not_updated.append({
+                    "card_id": card_db_id,
+                    "error": str(e)
+                })
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "message": f"Actualización completada por administrador",
+            "updated": updated,
+            "not_updated": len(not_updated),
+            "details": not_updated,
+            "admin_action": f"Precios actualizados por {admin_wallet}"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al actualizar precios: {e}"}), 500
