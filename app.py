@@ -8,6 +8,45 @@ import sys
 
 # filepath: /home/ignatus/Documentos/Github/WrapSell/backend_local/app.py
 
+def initialize_database():
+    """
+    Inicializa la base de datos ejecutando el script 01_init.sql
+    que crea las tablas solo si no existen.
+    """
+    try:
+        # Leer el archivo SQL de inicialización
+        script_path = os.path.join(os.path.dirname(__file__), '01_init.sql')
+        with open(script_path, 'r', encoding='utf-8') as f:
+            sql_script = f.read()
+        
+        # Conectar a la base de datos
+        DATABASE_URL = os.getenv('DATABASE_URL')
+        if not DATABASE_URL:
+            raise ValueError("DATABASE_URL no está definido")
+        
+        url = urllib.parse.urlparse(DATABASE_URL)
+        conn = psycopg2.connect(
+            dbname=url.path[1:], user=url.username,
+            password=url.password, host=url.hostname,
+            port=url.port
+        )
+        
+        # Ejecutar el script SQL
+        cur = conn.cursor()
+        cur.execute(sql_script)
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        print("Base de datos inicializada correctamente - Tablas creadas si no existían")
+        return True
+        
+    except FileNotFoundError:
+        print("Advertencia: Archivo 01_init.sql no encontrado")
+        return False
+    except Exception as e:
+        print(f"Error al inicializar la base de datos: {e}")
+        return False
 
 
 app = Flask(__name__)
@@ -24,6 +63,10 @@ try:
     )
     conn_test.close()
     print("Conexión a la base de datos exitosa")
+    
+    # Inicializar la base de datos (crear tablas si no existen)
+    initialize_database()
+    
 except Exception as e:
     print(f"Error al conectar a la base de datos: {e}")
     sys.exit(1)
@@ -959,7 +1002,7 @@ def admin_edit_card(card_id):
         update_values.append(card_id)
         query = f"UPDATE cards SET {', '.join(update_fields)} WHERE id = %s;"
         cur.execute(query, update_values)
-        conn.commit()
+        conn.commit();
         
         cur.close()
         conn.close()
