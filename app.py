@@ -10,6 +10,7 @@ import sys
 # Importar nuestros módulos personalizados
 from db_utils import get_db_connection
 from services import UserService, CardService, PoolService, DashboardService, AdminService
+from blockchain_service import get_blockchain_service
 
 # filepath: /home/ignatus/Documentos/Github/WrapSell/backend_local/app.py
 
@@ -32,6 +33,15 @@ def initialize_database():
                 migration_script = f.read()
         except FileNotFoundError:
             print("Advertencia: Archivo de migración 02_migration.sql no encontrado")
+        
+        # Leer el archivo de migración de blockchain
+        blockchain_migration_path = os.path.join(os.path.dirname(__file__), '03_blockchain_migration.sql')
+        blockchain_migration_script = ""
+        try:
+            with open(blockchain_migration_path, 'r', encoding='utf-8') as f:
+                blockchain_migration_script = f.read()
+        except FileNotFoundError:
+            print("Advertencia: Archivo de migración 03_blockchain_migration.sql no encontrado")
         
         # Conectar a la base de datos usando nuestra utilidad
         conn = get_db_connection()
@@ -638,6 +648,287 @@ def get_wrap_sells():
         
     except Exception as e:
         return jsonify({"error": f"Error al obtener WrapSells: {e}"}), 500
+
+# ========================================
+# BLOCKCHAIN CONTRACT DEPLOYMENT ENDPOINTS
+# ========================================
+
+@app.route('/contracts/wrapsell/deploy', methods=['POST'])
+@require_admin_wallet
+def deploy_wrapsell_contract():
+    """
+    [ADMIN] Deploy a new WrapSell contract to the blockchain
+    """
+    try:
+        data = request.get_json()
+        
+        # Required fields
+        name = data.get('name')
+        symbol = data.get('symbol') 
+        card_id = data.get('card_id')
+        card_name = data.get('card_name')
+        rarity = data.get('rarity')
+        estimated_value_per_card = data.get('estimated_value_per_card')
+        admin_wallet = data.get('admin_wallet')
+        
+        # Optional fields
+        wrap_pool_address = data.get('wrap_pool_address')
+        
+        if not all([name, symbol, card_id, card_name, rarity, estimated_value_per_card, admin_wallet]):
+            return jsonify({"error": "Missing required fields"}), 400
+        
+        # Convert estimated value to wei (assuming it's provided in ETH)
+        try:
+            estimated_value_wei = int(float(estimated_value_per_card) * 10**18)
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid estimated_value_per_card format"}), 400
+        
+        # Get blockchain service
+        blockchain_service = get_blockchain_service()
+        
+        # Deploy contract
+        result = blockchain_service.deploy_wrapsell_contract(
+            name=name,
+            symbol=symbol,
+            card_id=int(card_id),
+            card_name=card_name,
+            rarity=rarity,
+            estimated_value_per_card=estimated_value_wei,
+            wrap_pool_address=wrap_pool_address
+        )
+        
+        if result['success']:
+            # Store contract info in database
+            conn = get_db_connection()
+            cur = conn.cursor()
+            
+            cur.execute("""
+                INSERT INTO wrap_sells (
+                    contract_address, name, symbol, card_id, card_name, 
+                    rarity, estimated_value_per_card, owner_wallet, 
+                    wrap_pool_address, total_supply, total_cards_deposited, 
+                    total_tokens_issued, transaction_hash, block_number
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                result['contract_address'], name, symbol, card_id, card_name,
+                rarity, str(estimated_value_wei), admin_wallet,
+                wrap_pool_address, '0', 0, '0', 
+                result['transaction_hash'], result['block_number']
+            ))
+            
+            conn.commit()
+            cur.close()
+            conn.close()
+            
+            return jsonify({
+                "message": "WrapSell contract deployed successfully",
+                "contract_address": result['contract_address'],
+                "transaction_hash": result['transaction_hash'],
+                "gas_used": result['gas_used'],
+                "block_number": result['block_number']
+            }), 201
+        else:
+            return jsonify({
+                "error": f"Contract deployment failed: {result['error']}"
+            }), 500
+            
+    except Exception as e:
+        return jsonify({"error": f"Error deploying WrapSell contract: {e}"}), 500
+
+@app.route('/contracts/wrappool/deploy', methods=['POST'])
+@require_admin_wallet  
+def deploy_wrappool_contract():
+    """
+    [ADMIN] Deploy a new WrapPool contract to the blockchain
+    """
+    try:
+        data = request.get_json()
+        
+        # Required fields
+        name = data.get('name')
+        symbol = data.get('symbol')
+        owner = data.get('owner')
+        admin_wallet = data.get('admin_wallet')
+        
+        # Optional fields
+        collateralization_ratio = data.get('collateralization_ratio', 150)
+        
+        if not all([name, symbol, owner, admin_wallet]):
+            return jsonify({"error": "Missing required fields"}), 400
+        
+        # Get blockchain service
+        blockchain_service = get_blockchain_service()
+        
+        # Deploy contract
+        result = blockchain_service.deploy_wrappool_contract(
+            name=name,
+            symbol=symbol, 
+            owner=owner,
+            collateralization_ratio=int(collateralization_ratio)
+        )
+        
+        if result['success']:
+            # Store contract info in database
+            conn = get_db_connection()
+            cur = conn.cursor()
+            
+            cur.execute("""
+                INSERT INTO wrap_pools (
+                    contract_address, name, symbol, owner_wallet, 
+                    collateralization_ratio, total_supply, total_collateral_value,
+                    is_healthy, transaction_hash, block_number
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                result['contract_address'], name, symbol, owner,
+                collateralization_ratio, '0', '0', True,
+                result['transaction_hash'], result['block_number']
+            ))
+            
+            conn.commit()
+            cur.close()
+            conn.close()
+            
+            return jsonify({
+                "message": "WrapPool contract deployed successfully",
+                "contract_address": result['contract_address'],
+                "transaction_hash": result['transaction_hash'],
+                "gas_used": result['gas_used'],
+                "block_number": result['block_number']
+            }), 201
+        else:
+            return jsonify({
+                "error": f"Contract deployment failed: {result['error']}"
+            }), 500
+            
+    except Exception as e:
+        return jsonify({"error": f"Error deploying WrapPool contract: {e}"}), 500
+
+@app.route('/contracts/associate', methods=['POST'])
+@require_admin_wallet
+def associate_wrapsell_to_pool():
+    """
+    [ADMIN] Associate a WrapSell contract to a WrapPool
+    """
+    try:
+        data = request.get_json()
+        
+        wrapsell_address = data.get('wrapsell_address')
+        pool_address = data.get('pool_address')
+        admin_wallet = data.get('admin_wallet')
+        
+        if not all([wrapsell_address, pool_address, admin_wallet]):
+            return jsonify({"error": "Missing required fields"}), 400
+        
+        # Get blockchain service
+        blockchain_service = get_blockchain_service()
+        
+        # Associate contracts
+        result = blockchain_service.associate_wrapsell_to_pool(
+            wrapsell_address=wrapsell_address,
+            pool_address=pool_address
+        )
+        
+        if result['success']:
+            # Update database
+            conn = get_db_connection()
+            cur = conn.cursor()
+            
+            cur.execute("""
+                UPDATE wrap_sells 
+                SET wrap_pool_address = %s 
+                WHERE contract_address = %s
+            """, (pool_address, wrapsell_address))
+            
+            conn.commit()
+            cur.close()
+            conn.close()
+            
+            return jsonify({
+                "message": "WrapSell successfully associated to WrapPool",
+                "transaction_hash": result['transaction_hash']
+            }), 200
+        else:
+            return jsonify({
+                "error": f"Association failed: {result['error']}"
+            }), 500
+            
+    except Exception as e:
+        return jsonify({"error": f"Error associating contracts: {e}"}), 500
+
+@app.route('/contracts/status/<contract_address>', methods=['GET'])
+def get_contract_status(contract_address):
+    """
+    Get the status of a deployed contract from the blockchain
+    """
+    try:
+        # Get blockchain service
+        blockchain_service = get_blockchain_service()
+        
+        # Check if address is a contract
+        code = blockchain_service.w3.eth.get_code(contract_address)
+        
+        if len(code) > 0:
+            return jsonify({
+                "is_contract": True,
+                "contract_address": contract_address,
+                "message": "Contract exists on blockchain"
+            }), 200
+        else:
+            return jsonify({
+                "is_contract": False,
+                "contract_address": contract_address,
+                "message": "No contract found at this address"
+            }), 404
+            
+    except Exception as e:
+        return jsonify({"error": f"Error checking contract status: {e}"}), 500
+
+@app.route('/contracts/wrapsell', methods=['GET'])
+def get_wrapsell_contracts():
+    """
+    Get all deployed WrapSell contracts
+    """
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT id, contract_address, name, symbol, card_id, card_name, 
+                   rarity, estimated_value_per_card, owner_wallet, wrap_pool_address,
+                   total_supply, total_cards_deposited, total_tokens_issued,
+                   transaction_hash, block_number, created_at
+            FROM wrap_sells 
+            ORDER BY created_at DESC
+        """)
+        
+        contracts = []
+        for row in cur.fetchall():
+            contracts.append({
+                "id": row[0],
+                "contract_address": row[1],
+                "name": row[2],
+                "symbol": row[3],
+                "card_id": row[4],
+                "card_name": row[5],
+                "rarity": row[6],
+                "estimated_value_per_card": row[7],
+                "owner_wallet": row[8],
+                "wrap_pool_address": row[9],
+                "total_supply": row[10],
+                "total_cards_deposited": row[11],
+                "total_tokens_issued": row[12],
+                "transaction_hash": row[13],
+                "block_number": row[14],
+                "created_at": row[15].isoformat() if row[15] else None
+            })
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify(contracts), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error fetching WrapSell contracts: {e}"}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
