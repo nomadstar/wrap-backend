@@ -4,6 +4,7 @@
 import extraer
 from datetime import datetime
 import random
+import json
 from queries import *
 from db_utils import *
 
@@ -242,181 +243,141 @@ class DashboardService:
         }
 
 class AdminService:
-    """Servicio para funciones administrativas"""
+    """Servicio para verificación de permisos de administrador"""
     
     @staticmethod
-    def check_admin_status(wallet_address, admin_wallets):
-        """Verificar si una wallet es administradora"""
-        is_admin = wallet_address in admin_wallets
-        return {
-            "wallet_address": wallet_address,
-            "is_admin": is_admin,
-            "admin_wallets_count": len(admin_wallets)
-        }
-    
-    @staticmethod
-    def add_card_by_url_admin(url, user_wallet, pool_id, admin_wallet):
-        """Añadir carta como administrador"""
-        result = CardService.add_card_by_url(url, user_wallet, pool_id)
-        result["admin_action"] = f"Añadida por {admin_wallet}"
-        result["message"] = "Carta añadida exitosamente por administrador"
-        return result
-    
-    @staticmethod
-    def add_card_manual_admin(name, card_id, edition, user_wallet, market_value, admin_wallet, url=None, pool_id=None):
-        """Añadir carta manualmente como administrador"""
-        if not UserService.user_exists(user_wallet):
-            raise ValueError("Usuario no encontrado")
+    def is_admin(wallet_address):
+        """Verificar si una wallet es admin consultando exclusivamente la base de datos"""
+        if not wallet_address:
+            return False
         
-        if pool_id and not PoolService.pool_exists(pool_id):
-            raise ValueError("Pool no encontrado")
+        try:
+            admin = execute_query(ADMIN_QUERIES['get_admin_by_wallet'], (wallet_address,), fetch_one=True)
+            if admin and admin[2]:  # Si existe y está activo (is_active)
+                # Actualizar última conexión
+                execute_query(ADMIN_QUERIES['update_admin_last_login'], (wallet_address,))
+                return True
+            return False
+        except Exception as e:
+            print(f"Error verificando admin en BD: {e}")
+            return False
+    
+    @staticmethod
+    def check_admin_status(wallet_address):
+        """Verificar status de admin y devolver información detallada"""
+        if not wallet_address:
+            return {"is_admin": False, "message": "Wallet address no proporcionada"}
         
-        new_card_id = execute_query(
-            INSERT_CARD_QUERY,
-            (name, card_id, edition, user_wallet, url, market_value, pool_id),
-            return_id=True
+        try:
+            admin = execute_query(ADMIN_QUERIES['get_admin_by_wallet'], (wallet_address,), fetch_one=True)
+            if admin:
+                is_active = admin[2] if len(admin) > 2 else True
+                return {
+                    "is_admin": is_active,
+                    "wallet_address": wallet_address,
+                    "status": "active" if is_active else "inactive",
+                    "message": "Admin verificado" if is_active else "Admin inactivo"
+                }
+            else:
+                return {
+                    "is_admin": False,
+                    "wallet_address": wallet_address,
+                    "status": "not_admin",
+                    "message": "No es administrador"
+                }
+        except Exception as e:
+            print(f"Error verificando admin en BD: {e}")
+            return {"is_admin": False, "message": f"Error de verificación: {str(e)}"}
+    
+    @staticmethod
+    def get_admin_permissions(wallet_address):
+        """Obtener permisos específicos de un admin"""
+        try:
+            result = execute_query(ADMIN_QUERIES['check_admin_permission'], (wallet_address,), fetch_one=True)
+            if result:
+                return json.loads(result[0]) if isinstance(result[0], str) else result[0]
+        except Exception as e:
+            print(f"Error obteniendo permisos: {e}")
+        
+        # Permisos por defecto para admins válidos
+        if AdminService.is_admin(wallet_address):
+            return {
+                "read": True, 
+                "write": True, 
+                "delete": True, 
+                "manage_users": True, 
+                "manage_admins": True
+            }
+        return None
+
+class AdminManagementService:
+    """Servicio para gestión avanzada de administradores"""
+    
+    @staticmethod
+    def list_admins():
+        """Listar todos los administradores"""
+        return execute_query_with_columns(ADMIN_QUERIES['list_all_admins'])
+    
+    @staticmethod
+    def add_admin(wallet_address, admin_level=1, permissions=None, created_by=None):
+        """Agregar un nuevo administrador"""
+        if not permissions:
+            permissions = {
+                "read": True,
+                "write": admin_level >= 2,
+                "delete": admin_level >= 3,
+                "manage_users": admin_level >= 2,
+                "manage_admins": admin_level >= 3
+            }
+        
+        # Verificar que el usuario existe
+        if not UserService.user_exists(wallet_address):
+            raise ValueError("El usuario debe existir antes de ser admin")
+        
+        # Agregar admin
+        result = execute_query(
+            ADMIN_QUERIES['add_admin'], 
+            (wallet_address, admin_level, json.dumps(permissions), created_by, True),
+            fetch_one=True
         )
         
-        if pool_id:
-            execute_query(INSERT_POOL_CARD_QUERY, (new_card_id, admin_wallet))
-        
-        return {
-            "message": "Carta añadida manualmente por administrador",
-            "card_id": new_card_id,
-            "admin_action": f"Añadida manualmente por {admin_wallet}"
-        }
+        if result:
+            return {
+                "message": "Administrador agregado exitosamente",
+                "admin": {
+                    "wallet_address": result[1],
+                    "admin_level": result[2],
+                    "permissions": json.loads(result[3]) if isinstance(result[3], str) else result[3],
+                    "created_at": result[4].isoformat() if result[4] else None
+                }
+            }
+        raise ValueError("Error al agregar administrador")
     
     @staticmethod
-    def edit_card_admin(card_id, updates, admin_wallet):
-        """Editar carta como administrador"""
-        # Verificar que la carta existe
-        if not execute_query(CHECK_CARD_EXISTS_QUERY, (card_id,), fetch_one=True):
-            raise ValueError("Carta no encontrada")
-        
-        # Validar usuario si se está actualizando
-        if 'user_wallet' in updates and updates['user_wallet']:
-            if not UserService.user_exists(updates['user_wallet']):
-                raise ValueError("Nuevo usuario no encontrado")
-        
-        # Validar pool si se está actualizando
-        if 'pool_id' in updates and updates['pool_id'] and updates['pool_id'] != "":
-            if not PoolService.pool_exists(updates['pool_id']):
-                raise ValueError("Pool no encontrado")
-        
-        # Aplicar actualizaciones
-        update_record_fields("cards", card_id, updates)
-        
-        return {
-            "message": "Carta actualizada exitosamente",
-            "card_id": card_id,
-            "admin_action": f"Editada por {admin_wallet}"
-        }
+    def remove_admin(wallet_address):
+        """Remover un administrador (desactivar)"""
+        result = execute_query(ADMIN_QUERIES['remove_admin'], (wallet_address,), fetch_one=True)
+        if result:
+            return {"message": f"Administrador {result[0]} desactivado exitosamente"}
+        raise ValueError("Administrador no encontrado o ya desactivado")
     
     @staticmethod
-    def remove_card_admin(card_id, admin_wallet):
-        """Marcar carta como removida (soft delete)"""
-        card_info = execute_query(CHECK_CARD_REMOVED_STATUS_QUERY, (card_id,), fetch_one=True)
+    def update_admin_permissions(wallet_address, permissions=None, admin_level=None):
+        """Actualizar permisos de un administrador"""
+        if not permissions or not admin_level:
+            raise ValueError("Se requieren permisos y nivel de admin")
         
-        if not card_info:
-            raise ValueError("Carta no encontrada")
+        result = execute_query(
+            ADMIN_QUERIES['update_admin_permissions'], 
+            (json.dumps(permissions), admin_level, wallet_address),
+            fetch_one=True
+        )
         
-        if card_info[1] is not None:  # Ya está removida
-            raise ValueError("La carta ya está marcada como removida")
-        
-        # Marcar como removida
-        now = datetime.now()
-        execute_query(SOFT_DELETE_CARD_QUERY, (now, card_id))
-        execute_query(SOFT_DELETE_POOL_CARD_QUERY, (now, card_id))
-        
-        return {
-            "message": "Carta marcada como removida exitosamente",
-            "card_id": card_id,
-            "admin_action": f"Removida por {admin_wallet}"
-        }
-    
-    @staticmethod
-    def restore_card_admin(card_id, admin_wallet):
-        """Restaurar carta removida"""
-        card_info = execute_query(CHECK_CARD_REMOVED_STATUS_QUERY, (card_id,), fetch_one=True)
-        
-        if not card_info:
-            raise ValueError("Carta no encontrada")
-        
-        if card_info[1] is None:  # No está removida
-            raise ValueError("La carta no está marcada como removida")
-        
-        # Restaurar carta
-        execute_query(RESTORE_CARD_QUERY, (card_id,))
-        execute_query(RESTORE_POOL_CARD_QUERY, (card_id,))
-        
-        return {
-            "message": "Carta restaurada exitosamente",
-            "card_id": card_id,
-            "admin_action": f"Restaurada por {admin_wallet}"
-        }
-    
-    @staticmethod
-    def delete_card_permanent_admin(card_id, admin_wallet, confirm=False):
-        """Eliminar carta permanentemente"""
-        if not confirm:
-            raise ValueError("Debe confirmar la eliminación permanente con 'confirm: true'")
-        
-        if not execute_query(CHECK_CARD_EXISTS_QUERY, (card_id,), fetch_one=True):
-            raise ValueError("Carta no encontrada")
-        
-        # Eliminar en orden correcto (relaciones primero)
-        execute_query(PERMANENT_DELETE_POOL_CARD_QUERY, (card_id,))
-        execute_query(PERMANENT_DELETE_CARD_TRANSACTIONS_QUERY, (card_id,))
-        execute_query(PERMANENT_DELETE_CARD_QUERY, (card_id,))
-        
-        return {
-            "message": "Carta eliminada permanentemente",
-            "card_id": card_id,
-            "admin_action": f"ELIMINACIÓN PERMANENTE por {admin_wallet}",
-            "warning": "Esta acción es irreversible"
-        }
-    
-    @staticmethod
-    def move_cards_to_pool_admin(card_ids, new_pool_id, admin_wallet):
-        """Mover cartas a un pool diferente"""
-        if new_pool_id is not None and not PoolService.pool_exists(new_pool_id):
-            raise ValueError("Nuevo pool no encontrado")
-        
-        moved_cards = []
-        failed_cards = []
-        
-        for card_id in card_ids:
-            try:
-                card_info = execute_query(GET_CARD_POOL_INFO_QUERY, (card_id,), fetch_one=True)
-                
-                if not card_info:
-                    failed_cards.append({"card_id": card_id, "error": "Carta no encontrada"})
-                    continue
-                
-                old_pool_id = card_info[1]
-                
-                # Actualizar pool_id en la tabla cards
-                execute_query(UPDATE_CARD_POOL_QUERY, (new_pool_id, card_id))
-                
-                # Manejar tabla pool
-                if old_pool_id is not None:
-                    execute_query(MARK_POOL_CARD_REMOVED_QUERY, (card_id,))
-                
-                if new_pool_id is not None:
-                    execute_query(INSERT_POOL_CARD_QUERY, (card_id, admin_wallet))
-                
-                moved_cards.append({
-                    "card_id": card_id,
-                    "old_pool_id": old_pool_id,
-                    "new_pool_id": new_pool_id
-                })
-                
-            except Exception as e:
-                failed_cards.append({"card_id": card_id, "error": str(e)})
-        
-        return {
-            "message": f"{len(moved_cards)} cartas movidas exitosamente",
-            "moved_cards": moved_cards,
-            "failed_cards": failed_cards,
-            "admin_action": f"Movidas por {admin_wallet}"
-        }
+        if result:
+            return {
+                "message": "Permisos actualizados exitosamente",
+                "wallet_address": result[0],
+                "permissions": json.loads(result[1]) if isinstance(result[1], str) else result[1],
+                "admin_level": result[2]
+            }
+        raise ValueError("Administrador no encontrado o no activo")

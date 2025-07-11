@@ -9,13 +9,16 @@ import sys
 
 # Importar nuestros módulos personalizados
 from db_utils import get_db_connection
-from services import UserService, CardService, PoolService, DashboardService, AdminService
+from services import UserService, CardService, PoolService, DashboardService, AdminService, AdminManagementService
 
 # filepath: /home/ignatus/Documentos/Github/WrapSell/backend_local/app.py
 
 def initialize_database():
     """
-    Inicializa la base de datos ejecutando el script 01_init.sql
+    Inicializa la        # Verificar que el solicitante es admin de nivel suficiente
+        requester_status = AdminService.check_admin_status(requester_wallet)
+        if not requester_status['is_admin']:
+            return jsonify({"error": "Se requiere ser administrador"}), 403e de datos ejecutando el script 01_init.sql
     que crea las tablas solo si no existen.
     """
     try:
@@ -333,19 +336,34 @@ def get_pools():
 
 # === CONFIGURACIÓN DE ADMINISTRADORES ===
 
-# Lista de wallets administrativas autorizadas desde variable de entorno
-ADMIN_WALLETS_ENV = os.getenv('ADMIN_WALLETS', "")
-if ADMIN_WALLETS_ENV:
-    ADMIN_WALLETS = [wallet.strip() for wallet in ADMIN_WALLETS_ENV.split(',')]
-else:
-    # Wallets por defecto si no se especifica en .env
-    ADMIN_WALLETS = [
-        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",  # Wallet admin principal
-        "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",  # Wallet admin secundaria
-        "0xEf4dE33f51a75C0d3Dfa5e8B0B23370f0B3B6a87",  # Wallet del usuario ignatus
-    ]
+def check_admin_status_db(wallet_address):
+    """
+    Verificar si una wallet es administradora consultando la base de datos
+    """
+    try:
+        from queries import CHECK_ADMIN_STATUS_QUERY
+        from db_utils import execute_query_with_columns
+        
+        admin_data = execute_query_with_columns(
+            CHECK_ADMIN_STATUS_QUERY, 
+            (wallet_address,), 
+            fetch_one=True
+        )
+        
+        if admin_data and admin_data['is_active']:
+            return {
+                'is_admin': True,
+                'admin_level': admin_data['admin_level'],
+                'permissions': admin_data['permissions']
+            }
+        
+        return {'is_admin': False}
+        
+    except Exception as e:
+        print(f"Error checking admin status: {e}")
+        return {'is_admin': False}
 
-print(f"Wallets administrativas autorizadas: {ADMIN_WALLETS}")
+print("Sistema de administradores configurado - usando base de datos")
 
 def require_admin_wallet(f):
     @wraps(f)
@@ -358,10 +376,15 @@ def require_admin_wallet(f):
         # Verificar wallet administrativa
         data = request.get_json()
         if not data:
-            return jsonify({"error": "JSON requerido con wallet_address"}), 400
+            return jsonify({"error": "JSON requerido con admin_wallet"}), 400
         
         admin_wallet = data.get('admin_wallet')
-        if not admin_wallet or admin_wallet not in ADMIN_WALLETS:
+        if not admin_wallet:
+            return jsonify({"error": "admin_wallet requerido"}), 400
+        
+        # Verificar usando la base de datos exclusivamente
+        admin_status = AdminService.check_admin_status(admin_wallet)
+        if not admin_status['is_admin']:
             return jsonify({"error": "Wallet administrativa no autorizada"}), 403
         
         return f(*args, **kwargs)
@@ -380,11 +403,157 @@ def check_admin_status(wallet_address):
         if not api_key or api_key != API_SECRET_KEY:
             return jsonify({"error": "API key requerida o inválida"}), 401
         
-        result = AdminService.check_admin_status(wallet_address, ADMIN_WALLETS)
+        result = AdminService.check_admin_status(wallet_address)
         return jsonify(result), 200
         
     except Exception as e:
         return jsonify({"error": f"Error al verificar status de admin: {e}"}), 500
+
+# === ENDPOINTS PARA GESTIÓN DE ADMINISTRADORES ===
+
+@app.route('/admin/list', methods=['GET'])
+@require_api_key  
+def get_all_admins():
+    """
+    Obtener lista de todos los administradores
+    """
+    try:
+        # Verificar API key
+        api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
+        if not api_key or api_key != API_SECRET_KEY:
+            return jsonify({"error": "API key requerida o inválida"}), 401
+        
+        # Obtener wallet del query param para verificar permisos
+        requester_wallet = request.args.get('requester_wallet')
+        if not requester_wallet:
+            return jsonify({"error": "requester_wallet requerido como query parameter"}), 400
+        
+        # Verificar que el solicitante es admin
+        admin_status = AdminService.check_admin_status(requester_wallet)
+        if not admin_status['is_admin']:
+            return jsonify({"error": "Solo administradores pueden ver la lista de admins"}), 403
+        
+        admins = AdminManagementService.get_all_admins()
+        return jsonify(admins), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener lista de administradores: {e}"}), 500
+
+@app.route('/admin/add', methods=['POST'])
+@require_api_key
+def add_admin():
+    """
+    Agregar un nuevo administrador
+    Espera JSON con: requester_wallet, target_wallet, admin_level (opcional), permissions (opcional), notes (opcional)
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "JSON requerido"}), 400
+        
+        requester_wallet = data.get('requester_wallet')
+        target_wallet = data.get('target_wallet')
+        admin_level = data.get('admin_level', 1)
+        permissions = data.get('permissions', ['cards', 'pools'])
+        notes = data.get('notes', '')
+        
+        if not requester_wallet or not target_wallet:
+            return jsonify({"error": "requester_wallet y target_wallet son requeridos"}), 400
+        
+        # Verificar que el solicitante es admin de nivel suficiente
+        requester_status = AdminService.check_admin_status(requester_wallet)
+        if not requester_status['is_admin']:
+            return jsonify({"error": "Se requiere ser administrador"}), 403
+        
+        # Se simplifica la verificación ya que todos los admins activos pueden agregar otros
+        
+        result = AdminManagementService.add_admin(
+            target_wallet, admin_level, permissions, requester_wallet, notes
+        )
+        return jsonify(result), 201
+        
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Error al agregar administrador: {e}"}), 500
+
+@app.route('/admin/remove', methods=['DELETE'])
+@require_api_key
+def remove_admin():
+    """
+    Remover un administrador
+    Espera JSON con: requester_wallet, target_wallet
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "JSON requerido"}), 400
+        
+        requester_wallet = data.get('requester_wallet')
+        target_wallet = data.get('target_wallet')
+        
+        if not requester_wallet or not target_wallet:
+            return jsonify({"error": "requester_wallet y target_wallet son requeridos"}), 400
+        
+        # Verificar que el solicitante es admin de nivel suficiente
+        requester_status = AdminService.check_admin_status(requester_wallet)
+        if not requester_status['is_admin'] or requester_status['admin_level'] < 2:
+            return jsonify({"error": "Se requiere nivel de administrador 2 o superior"}), 403
+        
+        # Verificar nivel del target
+        target_status = AdminManagementService.get_admin_status_from_db(target_wallet)
+        if target_status['is_admin'] and target_status['admin_level'] >= requester_status['admin_level']:
+            return jsonify({"error": "No puedes remover un administrador de nivel igual o superior"}), 403
+        
+        result = AdminManagementService.remove_admin(target_wallet, requester_wallet)
+        return jsonify(result), 200
+        
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Error al remover administrador: {e}"}), 500
+
+@app.route('/admin/update-permissions', methods=['PUT'])
+@require_api_key
+def update_admin_permissions():
+    """
+    Actualizar permisos de un administrador
+    Espera JSON con: requester_wallet, target_wallet, admin_level (opcional), permissions (opcional)
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "JSON requerido"}), 400
+        
+        requester_wallet = data.get('requester_wallet')
+        target_wallet = data.get('target_wallet')
+        admin_level = data.get('admin_level')
+        permissions = data.get('permissions')
+        
+        if not requester_wallet or not target_wallet:
+            return jsonify({"error": "requester_wallet y target_wallet son requeridos"}), 400
+        
+        # Verificar que el solicitante es admin de nivel suficiente
+        requester_status = AdminService.check_admin_status(requester_wallet)
+        if not requester_status['is_admin'] or requester_status['admin_level'] < 2:
+            return jsonify({"error": "Se requiere nivel de administrador 2 o superior"}), 403
+        
+        # Verificar niveles si se está actualizando
+        if admin_level and admin_level >= requester_status['admin_level']:
+            return jsonify({"error": "No puedes asignar un nivel igual o superior al tuyo"}), 403
+        
+        result = AdminManagementService.update_admin_permissions(
+            target_wallet, admin_level, permissions, requester_wallet
+        )
+        return jsonify(result), 200
+        
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Error al actualizar permisos: {e}"}), 500
 
 # === ENDPOINTS ADMINISTRATIVOS PARA GESTIÓN DE CARTAS ===
 
@@ -557,6 +726,10 @@ def home():
                 "/update_prices": "Actualizar precios de cartas (POST)",
                 "--- ENDPOINTS ADMINISTRATIVOS ---": "Requieren wallet autorizada",
                 "/admin/check/<wallet_address>": "[ADMIN] Verificar status de administrador (GET)",
+                "/admin/list": "[ADMIN] Obtener lista de administradores (GET)",
+                "/admin/add": "[ADMIN] Agregar administrador (POST)",
+                "/admin/remove": "[ADMIN] Remover administrador (DELETE)",
+                "/admin/update-permissions": "[ADMIN] Actualizar permisos de administrador (PUT)",
                 "/cards_admin/add-by-url": "[ADMIN] Añadir carta por URL (POST)",
                 "/cards_admin/add-manual": "[ADMIN] Añadir carta manualmente (POST)",
                 "/cards_admin/remove/<card_id>": "[ADMIN] Marcar carta como removida (DELETE)",
