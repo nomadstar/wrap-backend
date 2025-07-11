@@ -218,6 +218,7 @@ def home():
                 "/total_value": "Obtener el valor total de la colección (GET)",
                 "/update_prices": "Actualizar precios de cartas (POST)",
                 "--- ENDPOINTS ADMINISTRATIVOS ---": "Requieren wallet autorizada",
+                "/admin/check/<wallet_address>": "[ADMIN] Verificar status de administrador (GET)",
                 "/cards_admin/add-by-url": "[ADMIN] Añadir carta por URL (POST)",
                 "/cards_admin/add-manual": "[ADMIN] Añadir carta manualmente (POST)",
                 "/cards_admin/edit/<card_id>": "[ADMIN] Editar carta existente (PUT)",
@@ -786,6 +787,31 @@ def require_admin_wallet(f):
         
         return f(*args, **kwargs)
     return decorated_function
+
+# === ENDPOINT PARA VERIFICACIÓN DE ADMINISTRADOR ===
+
+@app.route('/admin/check/<string:wallet_address>', methods=['GET'])
+def check_admin_status(wallet_address):
+    """
+    Verificar si una wallet tiene permisos de administrador
+    """
+    try:
+        # Verificar API key
+        api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
+        if not api_key or api_key != API_SECRET_KEY:
+            return jsonify({"error": "API key requerida o inválida"}), 401
+        
+        # Verificar si la wallet está en la lista de administradores
+        is_admin = wallet_address in ADMIN_WALLETS
+        
+        return jsonify({
+            "wallet_address": wallet_address,
+            "is_admin": is_admin,
+            "admin_wallets_count": len(ADMIN_WALLETS)
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al verificar status de admin: {e}"}), 500
 
 # === ENDPOINTS ADMINISTRATIVOS PARA GESTIÓN DE CARTAS ===
 
