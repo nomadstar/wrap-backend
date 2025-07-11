@@ -3,6 +3,19 @@
 
 -- 1. CREAR NUEVAS TABLAS (solo si no existen)
 
+-- Tabla de administradores del sistema
+CREATE TABLE IF NOT EXISTS admins (
+    id SERIAL PRIMARY KEY,
+    wallet_address VARCHAR(42) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE,
+    role VARCHAR(50) NOT NULL DEFAULT 'admin', -- 'super_admin', 'admin', 'moderator'
+    permissions JSONB DEFAULT '{}', -- Permisos específicos en formato JSON
+    is_active BOOLEAN DEFAULT true,
+    created_by VARCHAR(42) REFERENCES admins(wallet_address),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Tabla de WrapPool contracts (WrapPool.sol)
 CREATE TABLE IF NOT EXISTS wrap_pools (
     id SERIAL PRIMARY KEY,
@@ -149,6 +162,9 @@ CREATE INDEX IF NOT EXISTS idx_card_transactions_user ON card_transactions(user_
 CREATE INDEX IF NOT EXISTS idx_card_transactions_contract ON card_transactions(wrap_sell_address);
 CREATE INDEX IF NOT EXISTS idx_stablecoin_transactions_user ON stablecoin_transactions(user_wallet);
 CREATE INDEX IF NOT EXISTS idx_stablecoin_transactions_pool ON stablecoin_transactions(wrap_pool_address);
+CREATE INDEX IF NOT EXISTS idx_admins_role ON admins(role);
+CREATE INDEX IF NOT EXISTS idx_admins_active ON admins(is_active);
+CREATE INDEX IF NOT EXISTS idx_admins_created_by ON admins(created_by);
 
 -- 5. CREAR VISTAS PARA COMPATIBILIDAD CON CÓDIGO EXISTENTE
 
