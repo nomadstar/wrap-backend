@@ -79,11 +79,12 @@ class ContractDeployer:
             return contract_interface['abi'], contract_interface['bin']
             
         except ImportError:
-            print("⚠️  py-solc-x no instalado. Usando ABIs precompilados...")
+            print("⚠️  solcx no disponible en Python 3.13. Usando ABIs precompilados...")
             return self.load_precompiled_contract(contract_name)
         except Exception as e:
             print(f"❌ Error compilando {contract_name}: {e}")
-            return None, None
+            print("🔄 Fallback: Usando ABIs precompilados...")
+            return self.load_precompiled_contract(contract_name)
     
     def load_precompiled_contract(self, contract_name):
         """Cargar ABI y bytecode precompilados"""
