@@ -573,5 +573,70 @@ def home():
         }
     return jsonify(response), 200
 
+# === ENDPOINTS DE CONTRATOS ===
+
+@app.route('/contracts/wrap-pools', methods=['GET'])
+@require_api_key
+def get_wrap_pools():
+    """
+    Obtener todos los contratos WrapPool
+    """
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT wp.*, 
+                   COUNT(DISTINCT ws.contract_address) as total_wrapsells,
+                   COALESCE(SUM(ws.total_cards_deposited), 0) as total_cards
+            FROM wrap_pools wp
+            LEFT JOIN wrap_sells ws ON wp.contract_address = ws.wrap_pool_address
+            GROUP BY wp.id, wp.contract_address, wp.name, wp.symbol, wp.owner_wallet,
+                     wp.collateralization_ratio, wp.total_supply, wp.total_collateral_value,
+                     wp.is_healthy, wp.created_at, wp.updated_at
+            ORDER BY wp.created_at DESC;
+        """)
+        
+        rows = cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        pools = [dict(zip(columns, row)) for row in rows]
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify(pools), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener WrapPools: {e}"}), 500
+
+@app.route('/contracts/wrap-sells', methods=['GET'])
+@require_api_key
+def get_wrap_sells():
+    """
+    Obtener todos los contratos WrapSell
+    """
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT ws.*, wp.name as pool_name, wp.symbol as pool_symbol
+            FROM wrap_sells ws
+            LEFT JOIN wrap_pools wp ON ws.wrap_pool_address = wp.contract_address
+            ORDER BY ws.created_at DESC;
+        """)
+        
+        rows = cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        sells = [dict(zip(columns, row)) for row in rows]
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify(sells), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener WrapSells: {e}"}), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
