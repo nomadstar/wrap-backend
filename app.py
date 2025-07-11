@@ -1662,5 +1662,260 @@ def get_user_contract_positions(wallet_address):
     except Exception as e:
         return jsonify({"error": f"Error al obtener posiciones del usuario: {e}"}), 500
 
+# === ENDPOINTS PARA DESPLIEGUE DE CONTRATOS ===
+
+try:
+    from contract_deployer import ContractDeployer
+    contract_deployer = ContractDeployer()
+    CONTRACTS_ENABLED = True
+    print("✅ Módulo de despliegue de contratos cargado")
+except Exception as e:
+    CONTRACTS_ENABLED = False
+    print(f"⚠️  Módulo de contratos no disponible: {e}")
+
+@app.route('/contracts/deploy/pending', methods=['POST'])
+@require_admin_wallet
+def deploy_pending_contracts():
+    """
+    [ADMIN] Desplegar contratos pendientes basándose en la base de datos
+    Espera JSON con: admin_wallet
+    """
+    if not CONTRACTS_ENABLED:
+        return jsonify({"error": "Módulo de contratos no disponible. Instale web3, eth-account y py-solc-x"}), 503
+    
+    try:
+        data = request.get_json()
+        admin_wallet = data.get('admin_wallet')
+        
+        # Ejecutar despliegue de contratos pendientes
+        results = contract_deployer.deploy_pending_contracts()
+        
+        return jsonify({
+            "message": "Proceso de despliegue completado",
+            "results": results,
+            "admin_action": f"Despliegue ejecutado por {admin_wallet}"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error en el despliegue de contratos: {e}"}), 500
+
+@app.route('/contracts/deploy/wrapsell', methods=['POST'])
+@require_admin_wallet
+def deploy_single_wrapsell():
+    """
+    [ADMIN] Desplegar un contrato WrapSell específico
+    Espera JSON con: admin_wallet, card_id (ID de la carta en la base de datos)
+    """
+    if not CONTRACTS_ENABLED:
+        return jsonify({"error": "Módulo de contratos no disponible"}), 503
+    
+    try:
+        data = request.get_json()
+        admin_wallet = data.get('admin_wallet')
+        card_id = data.get('card_id')
+        
+        if not card_id:
+            return jsonify({"error": "card_id es requerido"}), 400
+        
+        # Obtener datos de la carta
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT id, name, card_id, edition, market_value, user_wallet, pool_id
+            FROM cards 
+            WHERE id = %s AND removed_at IS NULL AND wrap_sell_address IS NULL
+        """, (card_id,))
+        
+        card_data = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if not card_data:
+            return jsonify({"error": "Carta no encontrada o ya tiene contrato desplegado"}), 404
+        
+        # Convertir a diccionario
+        card_dict = {
+            'id': card_data[0],
+            'name': card_data[1],
+            'card_id': card_data[2],
+            'edition': card_data[3],
+            'market_value': float(card_data[4]) if card_data[4] else 0.01,
+            'user_wallet': card_data[5],
+            'pool_id': card_data[6]
+        }
+        
+        # Desplegar contrato
+        contract_address = contract_deployer.deploy_wrapsell_contract(card_dict)
+        contract_deployer.update_card_contract_address(card_id, contract_address)
+        
+        return jsonify({
+            "message": "WrapSell desplegado exitosamente",
+            "card_id": card_id,
+            "card_name": card_dict['name'],
+            "contract_address": contract_address,
+            "admin_action": f"Desplegado por {admin_wallet}"
+        }), 201
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al desplegar WrapSell: {e}"}), 500
+
+@app.route('/contracts/deploy/wrappool', methods=['POST'])
+@require_admin_wallet
+def deploy_single_wrappool():
+    """
+    [ADMIN] Desplegar un contrato WrapPool específico
+    Espera JSON con: admin_wallet, pool_id (ID del pool en la base de datos)
+    """
+    if not CONTRACTS_ENABLED:
+        return jsonify({"error": "Módulo de contratos no disponible"}), 503
+    
+    try:
+        data = request.get_json()
+        admin_wallet = data.get('admin_wallet')
+        pool_id = data.get('pool_id')
+        
+        if not pool_id:
+            return jsonify({"error": "pool_id es requerido"}), 400
+        
+        # Obtener datos del pool
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT id, name, description, TCG, created_by
+            FROM card_pools 
+            WHERE id = %s AND wrap_pool_address IS NULL
+        """, (pool_id,))
+        
+        pool_data = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if not pool_data:
+            return jsonify({"error": "Pool no encontrado o ya tiene contrato desplegado"}), 404
+        
+        # Convertir a diccionario
+        pool_dict = {
+            'id': pool_data[0],
+            'name': pool_data[1],
+            'description': pool_data[2],
+            'tcg': pool_data[3],
+            'created_by': pool_data[4],
+            'symbol': f"{pool_data[1][:3].upper()}USD"
+        }
+        
+        # Desplegar contrato
+        contract_address = contract_deployer.deploy_wrappool_contract(pool_dict)
+        contract_deployer.update_pool_contract_address(pool_id, contract_address)
+        
+        return jsonify({
+            "message": "WrapPool desplegado exitosamente",
+            "pool_id": pool_id,
+            "pool_name": pool_dict['name'],
+            "contract_address": contract_address,
+            "admin_action": f"Desplegado por {admin_wallet}"
+        }), 201
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al desplegar WrapPool: {e}"}), 500
+
+@app.route('/contracts/pending-deployments', methods=['GET'])
+@require_api_key
+def get_pending_deployments():
+    """
+    Obtener lista de cartas y pools que necesitan contratos desplegados
+    """
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Cartas sin contratos
+        cur.execute("""
+            SELECT c.id, c.name, c.card_id, c.edition, c.market_value, c.user_wallet, c.pool_id,
+                   cp.name as pool_name
+            FROM cards c
+            LEFT JOIN card_pools cp ON c.pool_id = cp.id
+            WHERE c.wrap_sell_address IS NULL 
+            AND c.removed_at IS NULL
+            AND c.market_value > 0
+            ORDER BY c.market_value DESC
+            LIMIT 50;
+        """)
+        
+        pending_cards_data = cur.fetchall()
+        pending_cards_columns = [desc[0] for desc in cur.description]
+        pending_cards = [dict(zip(pending_cards_columns, row)) for row in pending_cards_data]
+        
+        # Pools sin contratos
+        cur.execute("""
+            SELECT cp.id, cp.name, cp.description, cp.TCG, cp.created_by,
+                   COUNT(c.id) as total_cards,
+                   COALESCE(SUM(c.market_value), 0) as total_value
+            FROM card_pools cp
+            LEFT JOIN cards c ON cp.id = c.pool_id AND c.removed_at IS NULL
+            WHERE cp.wrap_pool_address IS NULL
+            GROUP BY cp.id, cp.name, cp.description, cp.TCG, cp.created_by
+            ORDER BY total_value DESC;
+        """)
+        
+        pending_pools_data = cur.fetchall()
+        pending_pools_columns = [desc[0] for desc in cur.description]
+        pending_pools = [dict(zip(pending_pools_columns, row)) for row in pending_pools_data]
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "pending_cards": pending_cards,
+            "pending_pools": pending_pools,
+            "summary": {
+                "total_pending_cards": len(pending_cards),
+                "total_pending_pools": len(pending_pools),
+                "estimated_total_value": sum(float(card['market_value'] or 0) for card in pending_cards),
+                "contracts_module_available": CONTRACTS_ENABLED
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener despliegues pendientes: {e}"}), 500
+
+@app.route('/contracts/deployment-config', methods=['GET'])
+@require_api_key
+def get_deployment_config():
+    """
+    Obtener configuración actual para el despliegue de contratos
+    """
+    if not CONTRACTS_ENABLED:
+        return jsonify({
+            "contracts_enabled": False,
+            "error": "Módulo de contratos no disponible"
+        }), 200
+    
+    try:
+        # Verificar configuración
+        config = {
+            "contracts_enabled": True,
+            "web3_connected": contract_deployer.w3.is_connected() if contract_deployer.w3 else False,
+            "account_configured": contract_deployer.account is not None,
+            "account_address": contract_deployer.account.address if contract_deployer.account else None,
+            "chain_id": contract_deployer.chain_id,
+            "rpc_url": os.getenv('RPC_URL', 'http://localhost:8545'),
+            "balance": None
+        }
+        
+        # Obtener balance si la cuenta está configurada
+        if config["web3_connected"] and config["account_configured"]:
+            try:
+                balance_wei = contract_deployer.w3.eth.get_balance(contract_deployer.account.address)
+                config["balance"] = contract_deployer.w3.from_wei(balance_wei, 'ether')
+            except:
+                config["balance"] = "Error al obtener balance"
+        
+        return jsonify(config), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener configuración: {e}"}), 500
+
 if __name__ == '__main__':
     app.run(debug=True)

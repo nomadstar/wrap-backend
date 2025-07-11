@@ -12,3 +12,8 @@ psycopg2-binary
 
 # OpenCV (headless build, no GUI deps)
 opencv-python-headless
+
+# Blockchain and Smart Contracts
+web3>=6.0.0
+eth-account>=0.10.0
+py-solc-x>=2.0.0
