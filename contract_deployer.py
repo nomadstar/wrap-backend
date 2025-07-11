@@ -119,8 +119,8 @@ class ContractDeployer:
         contract = self.w3.eth.contract(abi=abi, bytecode=bytecode)
         
         # Parámetros del constructor
-        name = f"Wrap{card_data['name']}"
-        symbol = f"W{card_data['name'][:3].upper()}"
+        name = f"{card_data['name']}WrapSell"  # Ej: "Milotic ExWrapSell"
+        symbol = f"W{card_data['name'].replace(' ', '')[:8].upper()}"  # Ej: "WMILOTICE"
         card_id = card_data['id']
         card_name = card_data['name']
         rarity = card_data.get('rarity', 'Common')
@@ -269,8 +269,8 @@ class ContractDeployer:
                 estimated_value_per_card, owner_wallet
             ) SELECT 
                 %s, 
-                CONCAT('Wrap', c.name), 
-                CONCAT('W', UPPER(LEFT(c.name, 3))), 
+                CONCAT(c.name, 'WrapSell'), 
+                CONCAT('W', UPPER(REPLACE(LEFT(c.name, 8), ' ', ''))), 
                 c.id, 
                 c.name, 
                 'Common', 
@@ -320,55 +320,194 @@ class ContractDeployer:
         conn.close()
     
     def deploy_pending_contracts(self):
-        """Desplegar todos los contratos pendientes"""
+        """Desplegar todos los contratos pendientes - SINCRONIZACIÓN COMPLETA"""
         results = {
             'wrapsells_deployed': [],
             'wrappools_deployed': [],
-            'errors': []
+            'errors': [],
+            'summary': {}
         }
         
         try:
-            # Desplegar WrapSell para cartas sin contratos
+            # Desplegar WrapSell para TODAS las cartas sin contratos
             cards = self.get_cards_without_contracts()
             print(f"📋 Encontradas {len(cards)} cartas sin contratos")
+            print(f"🎯 OBJETIVO: Sincronizar TODAS las cartas de la BD con la blockchain")
             
-            for card in cards[:10]:  # Limitar a 10 por batch para evitar problemas de gas
+            # Procesar TODAS las cartas (sin límite de batch)
+            deployed_count = 0
+            error_count = 0
+            
+            for i, card in enumerate(cards, 1):
                 try:
+                    print(f"🚀 [{i}/{len(cards)}] Desplegando contrato para '{card['name']}'...")
                     contract_address = self.deploy_wrapsell_contract(card)
                     self.update_card_contract_address(card['id'], contract_address)
+                    
                     results['wrapsells_deployed'].append({
                         'card_id': card['id'],
                         'card_name': card['name'],
-                        'contract_address': contract_address
+                        'contract_name': f"{card['name']}WrapSell",
+                        'contract_address': contract_address,
+                        'market_value': card['market_value']
                     })
-                    print(f"✅ WrapSell desplegado para carta '{card['name']}': {contract_address}")
+                    deployed_count += 1
+                    print(f"✅ [{i}/{len(cards)}] Contrato '{card['name']}WrapSell' desplegado: {contract_address}")
+                    
                 except Exception as e:
-                    error_msg = f"Error desplegando WrapSell para carta {card['name']}: {str(e)}"
+                    error_msg = f"Error desplegando WrapSell para carta '{card['name']}': {str(e)}"
                     results['errors'].append(error_msg)
-                    print(f"❌ {error_msg}")
+                    error_count += 1
+                    print(f"❌ [{i}/{len(cards)}] {error_msg}")
             
-            # Desplegar WrapPool para pools sin contratos
+            # Resumen de WrapSells
+            results['summary']['wrapsells'] = {
+                'total_cards': len(cards),
+                'deployed': deployed_count,
+                'errors': error_count,
+                'success_rate': f"{(deployed_count / len(cards) * 100):.1f}%" if cards else "0%"
+            }
+            
+            # Desplegar WrapPool para TODOS los pools sin contratos
             pools = self.get_pools_without_contracts()
             print(f"📋 Encontrados {len(pools)} pools sin contratos")
+            print(f"🎯 OBJETIVO: Sincronizar TODOS los pools de la BD con la blockchain")
             
-            for pool in pools[:5]:  # Limitar a 5 por batch
+            pool_deployed_count = 0
+            pool_error_count = 0
+            
+            for i, pool in enumerate(pools, 1):
                 try:
+                    print(f"🚀 [{i}/{len(pools)}] Desplegando contrato para pool '{pool['name']}'...")
                     contract_address = self.deploy_wrappool_contract(pool)
                     self.update_pool_contract_address(pool['id'], contract_address)
+                    
                     results['wrappools_deployed'].append({
                         'pool_id': pool['id'],
                         'pool_name': pool['name'],
-                        'contract_address': contract_address
+                        'contract_address': contract_address,
+                        'tcg': pool['tcg']
                     })
-                    print(f"✅ WrapPool desplegado para pool '{pool['name']}': {contract_address}")
+                    pool_deployed_count += 1
+                    print(f"✅ [{i}/{len(pools)}] Pool '{pool['name']}' desplegado: {contract_address}")
+                    
                 except Exception as e:
-                    error_msg = f"Error desplegando WrapPool para pool {pool['name']}: {str(e)}"
+                    error_msg = f"Error desplegando WrapPool para pool '{pool['name']}': {str(e)}"
                     results['errors'].append(error_msg)
-                    print(f"❌ {error_msg}")
+                    pool_error_count += 1
+                    print(f"❌ [{i}/{len(pools)}] {error_msg}")
+            
+            # Resumen de WrapPools
+            results['summary']['wrappools'] = {
+                'total_pools': len(pools),
+                'deployed': pool_deployed_count,
+                'errors': pool_error_count,
+                'success_rate': f"{(pool_deployed_count / len(pools) * 100):.1f}%" if pools else "0%"
+            }
+            
+            # Resumen final
+            print(f"\n🎉 SINCRONIZACIÓN COMPLETADA:")
+            print(f"📊 WrapSells: {deployed_count}/{len(cards)} cartas sincronizadas")
+            print(f"📊 WrapPools: {pool_deployed_count}/{len(pools)} pools sincronizados")
+            print(f"❌ Errores totales: {error_count + pool_error_count}")
                     
         except Exception as e:
-            error_msg = f"Error general en deploy_pending_contracts: {str(e)}"
+            error_msg = f"Error general en sincronización completa: {str(e)}"
             results['errors'].append(error_msg)
             print(f"❌ {error_msg}")
         
         return results
+    
+    def check_synchronization_status(self):
+        """Verificar el estado de sincronización entre BD y blockchain"""
+        conn = psycopg2.connect(self.DB_URL)
+        cur = conn.cursor()
+        
+        # Estadísticas de cartas
+        cur.execute("SELECT COUNT(*) FROM cards WHERE removed_at IS NULL")
+        total_cards = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(*) FROM cards WHERE wrap_sell_address IS NOT NULL AND removed_at IS NULL")
+        cards_with_contracts = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(*) FROM cards WHERE wrap_sell_address IS NULL AND removed_at IS NULL")
+        cards_without_contracts = cur.fetchone()[0]
+        
+        # Estadísticas de pools
+        cur.execute("SELECT COUNT(*) FROM card_pools")
+        total_pools = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(*) FROM card_pools WHERE wrap_pool_address IS NOT NULL")
+        pools_with_contracts = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(*) FROM card_pools WHERE wrap_pool_address IS NULL")
+        pools_without_contracts = cur.fetchone()[0]
+        
+        cur.close()
+        conn.close()
+        
+        sync_status = {
+            'cards': {
+                'total': total_cards,
+                'with_contracts': cards_with_contracts,
+                'without_contracts': cards_without_contracts,
+                'sync_percentage': (cards_with_contracts / total_cards * 100) if total_cards > 0 else 0,
+                'is_fully_synced': cards_without_contracts == 0
+            },
+            'pools': {
+                'total': total_pools,
+                'with_contracts': pools_with_contracts,
+                'without_contracts': pools_without_contracts,
+                'sync_percentage': (pools_with_contracts / total_pools * 100) if total_pools > 0 else 0,
+                'is_fully_synced': pools_without_contracts == 0
+            },
+            'overall': {
+                'is_fully_synced': cards_without_contracts == 0 and pools_without_contracts == 0
+            }
+        }
+        
+        # Mostrar resumen
+        print(f"📊 ESTADO DE SINCRONIZACIÓN BD ↔ BLOCKCHAIN:")
+        print(f"🃏 CARTAS: {cards_with_contracts}/{total_cards} ({sync_status['cards']['sync_percentage']:.1f}%)")
+        print(f"🏊 POOLS: {pools_with_contracts}/{total_pools} ({sync_status['pools']['sync_percentage']:.1f}%)")
+        
+        if sync_status['overall']['is_fully_synced']:
+            print(f"✅ TOTALMENTE SINCRONIZADO - Todas las entidades tienen contratos")
+        else:
+            print(f"⚠️  SINCRONIZACIÓN PENDIENTE:")
+            if cards_without_contracts > 0:
+                print(f"   • {cards_without_contracts} cartas sin contratos")
+            if pools_without_contracts > 0:
+                print(f"   • {pools_without_contracts} pools sin contratos")
+        
+        return sync_status
+
+    def ensure_full_synchronization(self):
+        """Garantizar sincronización completa entre BD y blockchain"""
+        print(f"🔄 INICIANDO SINCRONIZACIÓN COMPLETA BD ↔ BLOCKCHAIN")
+        
+        # Verificar estado actual
+        status = self.check_synchronization_status()
+        
+        if status['overall']['is_fully_synced']:
+            print(f"✅ Ya está completamente sincronizado. No hay nada que hacer.")
+            return {
+                'already_synced': True,
+                'status': status
+            }
+        
+        # Ejecutar despliegue completo
+        print(f"🚀 Ejecutando despliegue de contratos faltantes...")
+        deployment_results = self.deploy_pending_contracts()
+        
+        # Verificar estado final
+        print(f"🔍 Verificando estado final...")
+        final_status = self.check_synchronization_status()
+        
+        return {
+            'already_synced': False,
+            'initial_status': status,
+            'deployment_results': deployment_results,
+            'final_status': final_status,
+            'success': final_status['overall']['is_fully_synced']
+        }
