@@ -342,6 +342,7 @@ else:
     ADMIN_WALLETS = [
         "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",  # Wallet admin principal
         "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",  # Wallet admin secundaria
+        "0xEf4dE33f51a75C0d3Dfa5e8B0B23370f0B3B6a87",  # Wallet de usuario conectado
     ]
 
 print(f"Wallets administrativas autorizadas: {ADMIN_WALLETS}")
