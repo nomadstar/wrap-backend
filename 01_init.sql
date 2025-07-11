@@ -2,10 +2,7 @@
 CREATE TABLE IF NOT EXISTS users (
     wallet_address VARCHAR(42) PRIMARY KEY,
     wallet_type VARCHAR(25) NOT NULL,
-    username-- Insertar administrador por defecto (tu wallet address)
-INSERT INTO users (wallet_address, wallet_type, username) 
-VALUES ('0xEf4dE33f51a75C0d3Dfa5e8B0B23370f0B3B6a87', 'phantom', 'ignatus') 
-ON CONFLICT (wallet_address) DO NOTHING;CHAR(30),
+    username VARCHAR(30),
     email VARCHAR(100)
 );
 
@@ -143,33 +140,4 @@ CREATE TABLE IF NOT EXISTS pool (
     added_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     removed_at TIMESTAMP DEFAULT NULL
 );
-
--- Crear tabla de administradores
-CREATE TABLE IF NOT EXISTS admins (
-    id SERIAL PRIMARY KEY,
-    wallet_address VARCHAR(42) UNIQUE NOT NULL REFERENCES users(wallet_address),
-    admin_level INTEGER NOT NULL DEFAULT 1, -- 1=básico, 2=avanzado, 3=super admin
-    permissions JSONB DEFAULT '{"read": true, "write": false, "delete": false, "manage_users": false, "manage_admins": false}',
-    created_by VARCHAR(42) REFERENCES admins(wallet_address),
-    is_active BOOLEAN DEFAULT true,
-    last_login TIMESTAMP DEFAULT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Insertar administrador por defecto (tu wallet address)
-INSERT INTO users (wallet_address, wallet_type, username) 
-VALUES ('0xEf4dE33f51a75C0d3Dfa5e8B0B23370f0B3B6a87', 'panthom', 'ignatus') 
-ON CONFLICT (wallet_address) DO NOTHING;
-
-INSERT INTO admins (wallet_address, admin_level, permissions, is_active) 
-VALUES ('0xEf4dE33f51a75C0d3Dfa5e8B0B23370f0B3B6a87', 3, 
-        '{"read": true, "write": true, "delete": true, "manage_users": true, "manage_admins": true}', 
-        true) 
-ON CONFLICT (wallet_address) DO NOTHING;
-
--- Crear índices para optimizar consultas
-CREATE INDEX IF NOT EXISTS idx_admins_wallet_address ON admins(wallet_address);
-CREATE INDEX IF NOT EXISTS idx_admins_is_active ON admins(is_active);
-CREATE INDEX IF NOT EXISTS idx_admins_admin_level ON admins(admin_level);
 
