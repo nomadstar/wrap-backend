@@ -151,6 +151,12 @@ UPDATE card_pools
 SET wrap_pool_address = '0x2222222222222222222222222222222222222222'
 WHERE TCG = 'Yu-Gi-Oh' AND wrap_pool_address IS NULL;
 
+-- Insertar administradores del sistema
+INSERT INTO admins (wallet_address, email, role, permissions, is_active)
+VALUES 
+    ('0xEf4dE33f51a75C0d3Dfa5e8B0B23370f0B3B6a87', NULL, 'super_admin', '{"all": true}', true)
+ON CONFLICT (wallet_address) DO NOTHING;
+
 -- 4. CREAR ÍNDICES PARA OPTIMIZAR CONSULTAS
 
 CREATE INDEX IF NOT EXISTS idx_wrap_pools_owner ON wrap_pools(owner_wallet);
