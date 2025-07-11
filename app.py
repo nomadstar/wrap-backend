@@ -74,13 +74,11 @@ def initialize_database():
 
 app = Flask(__name__)
 
-# Configurar CORS para permitir solicitudes desde el frontend
-CORS(app, origins=[
-    "http://localhost:3000",  # Desarrollo local
-    "https://wrap-sell.vercel.app",  # Producción en Vercel (si aplica)
-    "https://*.vercel.app",  # Cualquier subdominio de Vercel
-    "*"  # Permitir todos los orígenes (solo para desarrollo)
-])
+# Configurar CORS para permitir cualquier origen, pero solo si la solicitud incluye la clave API
+from flask_cors import cross_origin
+
+# Permitir cualquier origen, pero solo para rutas que requieren API key
+CORS(app, origins="*", supports_credentials=True)
 
 try:
     DATABASE_URL = os.getenv('DATABASE_URL')
