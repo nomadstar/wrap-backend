@@ -43,7 +43,7 @@ class BlockchainService:
                 wrapsell_artifact = json.load(f)
             
             with open(os.path.join(current_dir, 'bytecode/WrapSell.txt'), 'r') as f:
-                wrapsell_bytecode = f.read().strip()
+                wrapsell_bytecode = wrapsell_artifact['bytecode']
             
             # Load WrapPool contract ABI and bytecode
             with open(os.path.join(current_dir, 'abi/WrapPool.json'), 'r') as f:
@@ -91,7 +91,7 @@ class BlockchainService:
         """
         try:
             artifacts = self.load_contract_artifacts()
-            wrapsell_contract = self.w3.eth.contract(
+            contract = self.w3.eth.contract(
                 abi=artifacts['WrapSell']['abi'],
                 bytecode=artifacts['WrapSell']['bytecode']
             )
@@ -111,7 +111,7 @@ class BlockchainService:
             ]
             
             # Build transaction
-            transaction = wrapsell_contract.constructor(*constructor_args).build_transaction({
+            transaction = contract.constructor(*constructor_args).build_transaction({
                 'chainId': self.chain_id,
                 'gas': 3000000,  # Estimated gas limit
                 'gasPrice': self.gas_price,
