@@ -39,7 +39,7 @@ class BlockchainService:
             current_dir = os.path.dirname(__file__)
             
             # Load WrapSell contract ABI and bytecode
-            with open(os.path.join(current_dir, 'abi/WrapSell.json'), 'r') as f:
+            with open(os.path.join(current_dir, 'abi/WrapSellTest.json'), 'r') as f:
                 wrapsell_artifact = json.load(f)
             
             with open(os.path.join(current_dir, 'bytecode/WrapSell.txt'), 'r') as f:
