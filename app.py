@@ -6,6 +6,7 @@ import psycopg2
 import extraer
 from functools import wraps
 import sys
+import json
 
 # Importar nuestros módulos personalizados
 from db_utils import get_db_connection
