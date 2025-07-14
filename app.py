@@ -930,8 +930,8 @@ def get_wrapsell_contracts():
         return jsonify({"error": f"Error fetching WrapSell contracts: {e}"}), 500
 
 # Cargar ABI de WrapSell desde archivo
-with open('artifacts/contracts/WrapSellTest.sol/WrapSell.json') as f:
-    wrapsell_bytecode = json.load(f)['bytecode']
+with open('abi/WrapSellTest.json') as f:
+    wrapsell_abi = json.load(f)['abi']
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
