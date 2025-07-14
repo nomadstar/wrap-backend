@@ -93,11 +93,16 @@ class ContractDeployer:
             bytecode_path = os.path.join(os.path.dirname(__file__), 'bytecode', f'{contract_name}.txt')
             
             with open(abi_path, 'r') as f:
-                abi = json.load(f)
-                
+                abi_json = json.load(f)
+                # Si es artefacto de Hardhat, extraer solo el campo 'abi'
+                if isinstance(abi_json, dict) and 'abi' in abi_json:
+                    abi = abi_json['abi']
+                else:
+                    abi = abi_json
+            
             with open(bytecode_path, 'r') as f:
                 bytecode = f.read().strip()
-                
+            
             return abi, bytecode
         except Exception as e:
             print(f"❌ Error cargando contrato precompilado {contract_name}: {e}")
