@@ -63,7 +63,8 @@ class CardService:
     
     @staticmethod
     def add_card_by_url(url, user_wallet, pool_id=None):
-        """Añadir carta usando URL de pricecharting"""
+        """Añadir carta usando URL de pricecharting y desplegar contrato inteligente"""
+        from blockchain_service import get_blockchain_service
         # Verificar que el usuario existe
         if not UserService.user_exists(user_wallet):
             raise ValueError("Usuario no encontrado. Debe crear el usuario primero.")
@@ -96,11 +97,75 @@ class CardService:
         if pool_id:
             execute_query(INSERT_POOL_CARD_QUERY, (new_card_id, user_wallet))
         
-        return {
-            "message": "Carta añadida exitosamente",
-            "card_id": new_card_id,
-            "card_data": card_data
-        }
+        # --- Desplegar contrato inteligente ---
+        blockchain_service = get_blockchain_service()
+        deploy_result = None
+        deploy_error = None
+        symbol = "ETH"
+        estimated_value = card_data.get('market_value', 0)
+        try:
+            estimated_value_wei = int(float(estimated_value) * 10**18)
+        except Exception:
+            estimated_value_wei = 0
+        # Intentar con ETH
+        try:
+            deploy_result = blockchain_service.deploy_wrapsell_contract(
+                name=card_data['name'],
+                symbol=symbol,
+                card_id=int(card_data['card_id']),
+                card_name=card_data['name'],
+                rarity=card_data.get('rarity', ''),
+                estimated_value_per_card=estimated_value_wei,
+                wrap_pool_address=None
+            )
+        except Exception as e:
+            deploy_error = str(e)
+            deploy_result = None
+        # Si falla, intentar con LNK
+        if not deploy_result or not deploy_result.get('success'):
+            symbol = "LNK"
+            try:
+                deploy_result = blockchain_service.deploy_wrapsell_contract(
+                    name=card_data['name'],
+                    symbol=symbol,
+                    card_id=int(card_data['card_id']),
+                    card_name=card_data['name'],
+                    rarity=card_data.get('rarity', ''),
+                    estimated_value_per_card=estimated_value_wei,
+                    wrap_pool_address=None
+                )
+            except Exception as e:
+                deploy_error = str(e)
+                deploy_result = None
+        # Registrar el contrato en la base de datos si fue exitoso
+        if deploy_result and deploy_result.get('success'):
+            execute_query(
+                INSERT_WRAP_SELL_QUERY,
+                (
+                    deploy_result['contract_address'],
+                    None,  # wrap_pool_address
+                    user_wallet,  # seller_address
+                    str(card_data['card_id']),  # card_ids (puede ser string o lista)
+                    str(estimated_value),  # asking_price
+                    'active',  # status
+                    symbol  # blockchain_network
+                )
+            )
+            return {
+                "message": "Carta añadida y contrato desplegado exitosamente",
+                "card_id": new_card_id,
+                "card_data": card_data,
+                "contract": {
+                    "address": deploy_result['contract_address'],
+                    "symbol": symbol,
+                    "tx": deploy_result.get('transaction_hash'),
+                    "block": deploy_result.get('block_number')
+                }
+            }
+        else:
+            # Si falla el deploy, revertir la carta o marcar como pendiente
+            execute_query(PERMANENT_DELETE_CARD_QUERY, (new_card_id,))
+            raise Exception(f"Error al desplegar el contrato inteligente: {deploy_error or (deploy_result and deploy_result.get('error'))}")
     
     @staticmethod
     def batch_add_cards_by_urls(urls, user_wallet, pool_id=None):
