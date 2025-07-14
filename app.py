@@ -564,6 +564,14 @@ def home():
                 "/dashboard/user/<wallet_address>/summary": "Resumen del usuario para dashboard (GET)",
                 "/total_value": "Obtener el valor total de la colección (GET)",
                 "/update_prices": "Actualizar precios de cartas (POST)",
+                "--- ENDPOINTS DE CONTRATOS ---": "Operaciones sobre contratos blockchain",
+                "/contracts/wrap-pools": "Obtener todos los contratos WrapPool (GET)",
+                "/contracts/wrap-sells": "Obtener todos los contratos WrapSell (GET)",
+                "/contracts/wrapsell": "Obtener todos los contratos WrapSell (GET, legacy)",
+                "/contracts/wrapsell/deploy": "[ADMIN] Crear (deploy) un contrato WrapSell (POST)",
+                "/contracts/wrappool/deploy": "[ADMIN] Crear (deploy) un contrato WrapPool (POST)",
+                "/contracts/associate": "[ADMIN] Asociar un WrapSell a un WrapPool (POST)",
+                "/contracts/status/<contract_address>": "Consultar el estado de un contrato (GET)",
                 "--- ENDPOINTS ADMINISTRATIVOS ---": "Requieren wallet autorizada",
                 "/admin/check/<wallet_address>": "[ADMIN] Verificar status de administrador (GET)",
                 "/cards_admin/add-by-url": "[ADMIN] Añadir carta por URL (POST)",
@@ -930,7 +938,7 @@ def get_wrapsell_contracts():
         return jsonify({"error": f"Error fetching WrapSell contracts: {e}"}), 500
 
 # Cargar ABI de WrapSell desde archivo
-with open('abi/WrapSell.json') as f:
+with open('abi/WrapSellTest.json') as f:
     wrapsell_abi = json.load(f)['abi']
 
 if __name__ == '__main__':
