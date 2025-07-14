@@ -64,7 +64,8 @@ contract WrapSell {
     uint256 public totalTokensIssued;
 
     // Chainlink price feed
-    AggregatorV3Interface public priceFeed; // e.g., ETH/USD
+    address public priceFeed; // e.g., ETH/USD
+    uint256 public estimatedValuePerCard;
 
     // Events
     event Transfer(address indexed from, address indexed to, uint256 value);
@@ -101,6 +102,7 @@ contract WrapSell {
         uint256 _cardId,
         string memory _cardName,
         string memory _rarity,
+        uint256 _estimatedValuePerCard,
         address _priceFeed
     ) {
         name = _name;
@@ -108,9 +110,10 @@ contract WrapSell {
         cardId = _cardId;
         cardName = _cardName;
         rarity = _rarity;
+        estimatedValuePerCard = _estimatedValuePerCard;
+        priceFeed = _priceFeed;
         owner = msg.sender;
         wrapPool = msg.sender;
-        priceFeed = AggregatorV3Interface(_priceFeed);
         totalCardsDeposited = 0;
         totalTokensIssued = 0;
     }
@@ -139,9 +142,19 @@ contract WrapSell {
      * @dev Get latest price from Chainlink price feed (returns price in USD with 8 decimals)
      */
     function getLatestPrice() public view returns (uint256) {
-        (, int256 price, , , ) = priceFeed.latestRoundData();
+        (, int256 price, , , ) = AggregatorV3Interface(priceFeed).latestRoundData();
         require(price > 0, "Invalid price");
         return uint256(price);
+    }
+
+    function getCardValue() public view returns (uint256) {
+        if (priceFeed != address(0)) {
+            (, int256 price, , , ) = AggregatorV3Interface(priceFeed).latestRoundData();
+            require(price > 0, "Invalid price");
+            return uint256(price);
+        } else {
+            return estimatedValuePerCard;
+        }
     }
 
     /**
@@ -150,7 +163,7 @@ contract WrapSell {
      */
     function depositCards(uint256 cardCount) external payable {
         require(cardCount > 0, "Must deposit at least 1 card");
-        uint256 cardUsdPrice = getLatestPrice(); // 8 decimals
+        uint256 cardUsdPrice = getCardValue(); // 8 decimals
         // For demo: 1 token = 1 USD worth of ETH per card
         uint256 requiredUsd = cardCount * cardUsdPrice;
         // Convert USD to ETH (msg.value is in wei, priceFeed is ETH/USD with 8 decimals)
@@ -184,7 +197,7 @@ contract WrapSell {
             "Insufficient card deposits"
         );
 
-        uint256 cardUsdPrice = getLatestPrice();
+        uint256 cardUsdPrice = getCardValue();
         uint256 tokensToBurn = cardCount * cardUsdPrice * 1e10; // scale to 18 decimals
         require(
             _balances[msg.sender] >= tokensToBurn,
@@ -212,7 +225,7 @@ contract WrapSell {
      * @dev Get total collateral value in USD (using Chainlink)
      */
     function getTotalCollateralValue() external view returns (uint256) {
-        uint256 cardUsdPrice = getLatestPrice();
+        uint256 cardUsdPrice = getCardValue();
         return totalCardsDeposited * cardUsdPrice;
     }
 
@@ -229,7 +242,7 @@ contract WrapSell {
             uint256 collateralizationRatio
         )
     {
-        uint256 cardUsdPrice = getLatestPrice();
+        uint256 cardUsdPrice = getCardValue();
         totalCards = totalCardsDeposited;
         totalValueUsd = totalCardsDeposited * cardUsdPrice;
         tokensIssued = totalTokensIssued;
@@ -255,7 +268,7 @@ contract WrapSell {
             uint256 userCollateralValueUsd
         )
     {
-        uint256 cardUsdPrice = getLatestPrice();
+        uint256 cardUsdPrice = getCardValue();
         cardsDeposited_ = cardDeposits[user];
         tokenBalance = _balances[user];
         userCollateralValueUsd = cardsDeposited_ * cardUsdPrice;

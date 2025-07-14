@@ -17,6 +17,7 @@ contract WrapSell {
     string public cardName;
     string public rarity;
     uint256 public estimatedValuePerCard; // Value per individual card unit
+    address public priceFeed;
 
     // Owner and permissions
     address public owner;
@@ -70,7 +71,8 @@ contract WrapSell {
         uint256 _cardId,
         string memory _cardName,
         string memory _rarity,
-        uint256 _estimatedValuePerCard
+        uint256 _estimatedValuePerCard,
+        address _priceFeed
     ) {
         name = _name;
         symbol = _symbol;
@@ -78,6 +80,7 @@ contract WrapSell {
         cardName = _cardName;
         rarity = _rarity;
         estimatedValuePerCard = _estimatedValuePerCard;
+        priceFeed = _priceFeed;
         owner = msg.sender;
         wrapPool = msg.sender; // Initially set to deployer, can be updated
         totalCardsDeposited = 0;
@@ -215,6 +218,16 @@ contract WrapSell {
         cardsDeposited = cardDeposits[user];
         tokenBalance = _balances[user];
         userCollateralValue = cardsDeposited * estimatedValuePerCard;
+    }
+
+    function getCardValue() public view returns (uint256) {
+        if (priceFeed != address(0)) {
+            (, int256 price, , , ) = AggregatorV3Interface(priceFeed).latestRoundData();
+            require(price > 0, "Invalid price");
+            return uint256(price);
+        } else {
+            return estimatedValuePerCard;
+        }
     }
 
     // --- ERC20 Functions ---
