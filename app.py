@@ -219,6 +219,7 @@ def add_card_by_url():
     """
     Añadir una nueva carta a la base de datos usando una URL de pricecharting.com
     Espera JSON con: url, user_wallet, pool_id (opcional)
+    Ahora también despliega automáticamente un contrato WrapSell y asocia la dirección a la carta.
     """
     try:
         data = request.get_json()
@@ -233,41 +234,168 @@ def add_card_by_url():
         if not url or not user_wallet:
             return jsonify({"error": "url y user_wallet son requeridos"}), 400
         
+        # 1. Agregar la carta normalmente
         result = CardService.add_card_by_url(url, user_wallet, pool_id)
+        if not result or not result.get('card_id'):
+            return jsonify({"error": "No se pudo crear la carta"}), 500
+
+        card_id = result['card_id']
+        # Obtener los datos completos de la carta recién creada o existente
+        card = CardService.get_card_by_id(card_id)
+        if not card:
+            return jsonify({"error": "No se pudo obtener la carta recién creada"}), 500
+
+        # Si la carta ya tiene contrato asociado, mintear tokens en el contrato SOLO si la wallet es admin
+        if card.get('wrapsell_contract_address'):
+            contract_address = card['wrapsell_contract_address']
+            blockchain_service = get_blockchain_service()
+            # Determinar la cantidad de tokens a mintear (ejemplo: 1 carta = 1 token * 1e18)
+            tokens_to_mint = int(1 * 10**18)  # 1 token por carta, ajusta si es necesario
+
+            # Validar que la wallet que hace la petición es admin
+            api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
+            admin_wallet = user_wallet  # El minteo solo lo puede hacer el admin que recibe el colateral
+            if admin_wallet not in ADMIN_WALLETS:
+                return jsonify({"error": "Solo un administrador puede mintear tokens en el contrato."}), 403
+
+            try:
+                mint_result = blockchain_service.mint_wrapsell_tokens(
+                    contract_address=contract_address,
+                    to_address=user_wallet,
+                    amount=tokens_to_mint
+                )
+            except Exception as e:
+                return jsonify({"error": f"Error al mintear tokens en el contrato: {e}"}), 500
+
+            result['wrapsell_contract_address'] = contract_address
+            result['wrapsell_mint'] = {
+                "transaction_hash": mint_result.get('transaction_hash'),
+                "block_number": mint_result.get('block_number'),
+                "gas_used": mint_result.get('gas_used'),
+                "minted_to": user_wallet,
+                "amount": tokens_to_mint
+            }
+            result['message'] = "La carta ya tiene un contrato asociado. Se mintearon tokens en el contrato existente (solo admin)."
+            return jsonify(result), 200
+
+        # 2. Desplegar el contrato WrapSell automáticamente SOLO si no existe
+        blockchain_service = get_blockchain_service()
+        name = card.get('name')
+        symbol = (name[:3] if name else "WRP").upper()
+        rarity = card.get('rarity', 'Common')
+        estimated_value = card.get('market_value', '0.01')
+        card_name = card.get('name')
+
+        # Convertir a wei
+        try:
+            estimated_value_wei = int(float(estimated_value) * 10**18)
+        except Exception:
+            estimated_value_wei = 0
+
+        deploy_result = blockchain_service.deploy_wrapsell_contract(
+            name=name,
+            symbol=symbol,
+            card_id=int(card_id),
+            card_name=card_name,
+            rarity=rarity,
+            estimated_value_per_card=estimated_value_wei,
+            wrap_pool_address=None
+        )
+
+        if not deploy_result.get('success'):
+            return jsonify({"error": f"Error al desplegar contrato: {deploy_result.get('error', 'desconocido')}"}), 500
+
+        contract_address = deploy_result['contract_address']
+
+        # 3. Guardar la dirección del contrato en la carta
+        CardService.update_card_contract_address(card_id, contract_address)
+
+        # 4. Devolver la respuesta combinada
+        result['wrapsell_contract_address'] = contract_address
+        result['wrapsell_deploy'] = {
+            "transaction_hash": deploy_result['transaction_hash'],
+            "block_number": deploy_result['block_number'],
+            "gas_used": deploy_result['gas_used']
+        }
         return jsonify(result), 201
         
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
-        return jsonify({"error": f"Error al añadir carta: {e}"}), 500
+        return jsonify({"error": f"Error al añadir carta o desplegar contrato: {e}"}), 500
 
 @app.route('/cards/batch-add-by-urls', methods=['POST'])
 @require_api_key
-def batch_add_cards_by_urls():
+def add_card_by_url():
     """
-    Añadir múltiples cartas a la base de datos usando URLs
-    Espera JSON con: urls (array), user_wallet, pool_id (opcional)
+    Añadir una nueva carta a la base de datos usando una URL de pricecharting.com
+    Espera JSON con: url, user_wallet, pool_id (opcional)
+    Ahora también despliega automáticamente un contrato WrapSell y asocia la dirección a la carta.
     """
     try:
         data = request.get_json()
-        
         if not data:
             return jsonify({"error": "JSON requerido"}), 400
-        
-        urls = data.get('urls', [])
+        url = data.get('url')
         user_wallet = data.get('user_wallet')
         pool_id = data.get('pool_id')
-        
-        if not urls or not user_wallet:
-            return jsonify({"error": "urls (array) y user_wallet son requeridos"}), 400
-        
-        if not isinstance(urls, list):
-            return jsonify({"error": "urls debe ser un array"}), 400
-        
-        result = CardService.batch_add_cards_by_urls(urls, user_wallet, pool_id)
+        if not url or not user_wallet:
+            return jsonify({"error": "url y user_wallet son requeridos"}), 400
+
+        # 1. Agregar la carta normalmente
+        result = CardService.add_card_by_url(url, user_wallet, pool_id)
+        if not result or not result.get('card_id'):
+            return jsonify({"error": "No se pudo crear la carta"}), 500
+        card_id = result['card_id']
+        # Obtener los datos completos de la carta recién creada
+        card = CardService.get_card_by_id(card_id)
+        if not card:
+            return jsonify({"error": "No se pudo obtener la carta recién creada"}), 500
+
+        # 2. Desplegar el contrato WrapSell automáticamente
+        blockchain_service = get_blockchain_service()
+        name = card.get('name')
+        symbol = (name[:3] if name else "WRP").upper()
+        rarity = card.get('rarity', 'Common')
+        estimated_value = card.get('market_value', '0.01')
+        card_name = card.get('name')
+
+        # Convertir a wei
+        try:
+            estimated_value_wei = int(float(estimated_value) * 10**18)
+        except Exception:
+            estimated_value_wei = 0
+
+        deploy_result = blockchain_service.deploy_wrapsell_contract(
+            name=name,
+            symbol=symbol,
+            card_id=int(card_id),
+            card_name=card_name,
+            rarity=rarity,
+            estimated_value_per_card=estimated_value_wei,
+            wrap_pool_address=None
+        )
+
+        if not deploy_result.get('success'):
+            return jsonify({"error": f"Error al desplegar contrato: {deploy_result.get('error', 'desconocido')}"}), 500
+
+        contract_address = deploy_result['contract_address']
+
+        # 3. Guardar la dirección del contrato en la carta
+        CardService.update_card_contract_address(card_id, contract_address)
+
+        # 4. Devolver la respuesta combinada
+        result['wrapsell_contract_address'] = contract_address
+        result['wrapsell_deploy'] = {
+            "transaction_hash": deploy_result['transaction_hash'],
+            "block_number": deploy_result['block_number'],
+            "gas_used": deploy_result['gas_used']
+        }
         return jsonify(result), 201
-        
     except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Error al añadir carta y desplegar contrato: {e}"}), 500
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": f"Error al añadir cartas: {e}"}), 500
