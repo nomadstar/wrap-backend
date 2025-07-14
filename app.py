@@ -6,6 +6,7 @@ import psycopg2
 import extraer
 from functools import wraps
 import sys
+import json
 
 # Importar nuestros módulos personalizados
 from db_utils import get_db_connection
@@ -927,6 +928,10 @@ def get_wrapsell_contracts():
         
     except Exception as e:
         return jsonify({"error": f"Error fetching WrapSell contracts: {e}"}), 500
+
+# Cargar ABI de WrapSell desde archivo
+with open('artifacts/contracts/WrapSellTest.sol/WrapSell.json') as f:
+    wrapsell_bytecode = json.load(f)['bytecode']
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)

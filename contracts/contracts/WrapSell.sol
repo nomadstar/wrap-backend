@@ -1,43 +1,10 @@
-/**
- * @title WrapSell (Chainlink-enabled)
- * @dev ERC20 token backed by multiple units of a specific TCG card as collateral, using Chainlink price feeds for dynamic card valuation.
- */
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-// Chainlink AggregatorV3Interface for price feeds
-interface AggregatorV3Interface {
-    function decimals() external view returns (uint8);
-
-    function description() external view returns (string memory);
-
-    function version() external view returns (uint256);
-
-    function getRoundData(
-        uint80 _roundId
-    )
-        external
-        view
-        returns (
-            uint80 roundId,
-            int256 answer,
-            uint256 startedAt,
-            uint256 updatedAt,
-            uint80 answeredInRound
-        );
-
-    function latestRoundData()
-        external
-        view
-        returns (
-            uint80 roundId,
-            int256 answer,
-            uint256 startedAt,
-            uint256 updatedAt,
-            uint80 answeredInRound
-        );
-}
-
+/**
+ * @title WrapSell
+ * @dev ERC20 token backed by multiple units of a specific TCG card as collateral
+ */
 contract WrapSell {
     // ERC20 Basic Variables
     string public name;
@@ -49,22 +16,20 @@ contract WrapSell {
     uint256 public cardId;
     string public cardName;
     string public rarity;
+    uint256 public estimatedValuePerCard; // Value per individual card unit
 
     // Owner and permissions
     address public owner;
-    address public wrapPool;
+    address public wrapPool; // The WrapPool that manages this contract
 
     // Balances and allowances
     mapping(address => uint256) private _balances;
     mapping(address => mapping(address => uint256)) private _allowances;
 
     // Card collateral tracking
-    mapping(address => uint256) public cardDeposits;
+    mapping(address => uint256) public cardDeposits; // User => number of cards deposited
     uint256 public totalCardsDeposited;
     uint256 public totalTokensIssued;
-
-    // Chainlink price feed
-    AggregatorV3Interface public priceFeed; // e.g., ETH/USD
 
     // Events
     event Transfer(address indexed from, address indexed to, uint256 value);
@@ -83,7 +48,11 @@ contract WrapSell {
         uint256 cardCount,
         uint256 tokensBurned
     );
-    event CardInfoUpdated(string cardName, string rarity);
+    event CardInfoUpdated(
+        string cardName,
+        string rarity,
+        uint256 estimatedValue
+    );
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner can call this function");
@@ -101,16 +70,16 @@ contract WrapSell {
         uint256 _cardId,
         string memory _cardName,
         string memory _rarity,
-        address _priceFeed
+        uint256 _estimatedValuePerCard
     ) {
         name = _name;
         symbol = _symbol;
         cardId = _cardId;
         cardName = _cardName;
         rarity = _rarity;
+        estimatedValuePerCard = _estimatedValuePerCard;
         owner = msg.sender;
-        wrapPool = msg.sender;
-        priceFeed = AggregatorV3Interface(_priceFeed);
+        wrapPool = msg.sender; // Initially set to deployer, can be updated
         totalCardsDeposited = 0;
         totalTokensIssued = 0;
     }
@@ -128,20 +97,13 @@ contract WrapSell {
      */
     function updateCardInfo(
         string memory _cardName,
-        string memory _rarity
+        string memory _rarity,
+        uint256 _estimatedValuePerCard
     ) external onlyOwner {
         cardName = _cardName;
         rarity = _rarity;
-        emit CardInfoUpdated(_cardName, _rarity);
-    }
-
-    /**
-     * @dev Get latest price from Chainlink price feed (returns price in USD with 8 decimals)
-     */
-    function getLatestPrice() public view returns (uint256) {
-        (, int256 price, , , ) = priceFeed.latestRoundData();
-        require(price > 0, "Invalid price");
-        return uint256(price);
+        estimatedValuePerCard = _estimatedValuePerCard;
+        emit CardInfoUpdated(_cardName, _rarity, _estimatedValuePerCard);
     }
 
     /**
@@ -150,22 +112,20 @@ contract WrapSell {
      */
     function depositCards(uint256 cardCount) external payable {
         require(cardCount > 0, "Must deposit at least 1 card");
-        uint256 cardUsdPrice = getLatestPrice(); // 8 decimals
-        // For demo: 1 token = 1 USD worth of ETH per card
-        uint256 requiredUsd = cardCount * cardUsdPrice;
-        // Convert USD to ETH (msg.value is in wei, priceFeed is ETH/USD with 8 decimals)
-        // ETH amount = requiredUsd * 1e18 / ethUsdPrice
-        uint256 ethUsdPrice = getLatestPrice();
-        uint256 requiredEth = (requiredUsd * 1e18) / ethUsdPrice;
-        require(msg.value >= requiredEth, "Insufficient ETH sent");
 
-        // Issue tokens 1:1 with USD value (scaled to 18 decimals)
-        uint256 tokensToIssue = cardCount * cardUsdPrice * 1e10; // scale to 18 decimals
+        // For demo purposes, we're using ETH as proxy for card value
+        // In production, this would verify actual card ownership/custody
+        uint256 requiredValue = cardCount * estimatedValuePerCard;
+        require(msg.value >= requiredValue, "Insufficient payment for cards");
+
+        // Issue tokens 1:1 with card value
+        uint256 tokensToIssue = cardCount * estimatedValuePerCard;
 
         cardDeposits[msg.sender] += cardCount;
         totalCardsDeposited += cardCount;
         totalTokensIssued += tokensToIssue;
 
+        // Mint tokens
         totalSupply += tokensToIssue;
         _balances[msg.sender] += tokensToIssue;
 
@@ -184,36 +144,34 @@ contract WrapSell {
             "Insufficient card deposits"
         );
 
-        uint256 cardUsdPrice = getLatestPrice();
-        uint256 tokensToBurn = cardCount * cardUsdPrice * 1e10; // scale to 18 decimals
+        uint256 tokensToBurn = cardCount * estimatedValuePerCard;
         require(
             _balances[msg.sender] >= tokensToBurn,
             "Insufficient token balance"
         );
 
+        // Burn tokens
         totalSupply -= tokensToBurn;
         _balances[msg.sender] -= tokensToBurn;
 
+        // Update deposits
         cardDeposits[msg.sender] -= cardCount;
         totalCardsDeposited -= cardCount;
         totalTokensIssued -= tokensToBurn;
 
-        // Return ETH equivalent to user
-        uint256 ethUsdPrice = getLatestPrice();
-        uint256 usdToReturn = cardCount * cardUsdPrice;
-        uint256 ethToReturn = (usdToReturn * 1e18) / ethUsdPrice;
-        payable(msg.sender).transfer(ethToReturn);
+        // Transfer value back to user
+        uint256 valueToReturn = cardCount * estimatedValuePerCard;
+        payable(msg.sender).transfer(valueToReturn);
 
         emit Transfer(msg.sender, address(0), tokensToBurn);
         emit CardsWithdrawn(msg.sender, cardCount, tokensToBurn);
     }
 
     /**
-     * @dev Get total collateral value in USD (using Chainlink)
+     * @dev Get total collateral value (needed by WrapPool)
      */
     function getTotalCollateralValue() external view returns (uint256) {
-        uint256 cardUsdPrice = getLatestPrice();
-        return totalCardsDeposited * cardUsdPrice;
+        return totalCardsDeposited * estimatedValuePerCard;
     }
 
     /**
@@ -224,18 +182,17 @@ contract WrapSell {
         view
         returns (
             uint256 totalCards,
-            uint256 totalValueUsd,
+            uint256 totalValue,
             uint256 tokensIssued,
             uint256 collateralizationRatio
         )
     {
-        uint256 cardUsdPrice = getLatestPrice();
         totalCards = totalCardsDeposited;
-        totalValueUsd = totalCardsDeposited * cardUsdPrice;
+        totalValue = totalCardsDeposited * estimatedValuePerCard;
         tokensIssued = totalTokensIssued;
 
         if (totalTokensIssued > 0) {
-            collateralizationRatio = (totalValueUsd * 100) / totalTokensIssued;
+            collateralizationRatio = (totalValue * 100) / totalTokensIssued;
         } else {
             collateralizationRatio = 0;
         }
@@ -250,15 +207,14 @@ contract WrapSell {
         external
         view
         returns (
-            uint256 cardsDeposited_,
+            uint256 cardsDeposited,
             uint256 tokenBalance,
-            uint256 userCollateralValueUsd
+            uint256 userCollateralValue
         )
     {
-        uint256 cardUsdPrice = getLatestPrice();
-        cardsDeposited_ = cardDeposits[user];
+        cardsDeposited = cardDeposits[user];
         tokenBalance = _balances[user];
-        userCollateralValueUsd = cardsDeposited_ * cardUsdPrice;
+        userCollateralValue = cardsDeposited * estimatedValuePerCard;
     }
 
     // --- ERC20 Functions ---
@@ -351,9 +307,10 @@ contract WrapSell {
         returns (
             uint256 _cardId,
             string memory _cardName,
-            string memory _rarity
+            string memory _rarity,
+            uint256 _estimatedValuePerCard
         )
     {
-        return (cardId, cardName, rarity);
+        return (cardId, cardName, rarity, estimatedValuePerCard);
     }
 }
