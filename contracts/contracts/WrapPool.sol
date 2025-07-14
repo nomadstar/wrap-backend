@@ -204,4 +204,21 @@ contract WrapPool is ERC20, Ownable {
     function isHealthy() public view returns (bool) {
         return getCurrentCollateralizationRatio() >= collateralizationRatio;
     }
+
+    /**
+     * @dev Permite al owner del pool mintear tokens en un contrato WrapSell aceptado
+     * @param wrapSell Dirección del contrato WrapSell
+     * @param to Destinatario de los tokens
+     * @param amount Cantidad de tokens a mintear (18 decimales)
+     */
+    function mintWrapSellToken(
+        address wrapSell,
+        address to,
+        uint256 amount
+    ) external onlyOwner {
+        require(acceptedWrapSells[wrapSell], "WrapSell no aceptado");
+        require(to != address(0), "No se puede mintear a address 0");
+        require(amount > 0, "Cantidad debe ser mayor a 0");
+        WrapSell(wrapSell).mint(to, amount);
+    }
 }

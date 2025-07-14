@@ -295,6 +295,19 @@ contract WrapSell {
         payable(owner).transfer(amount);
     }
 
+    /**
+     * @dev Mint new tokens to a specified address (onlyOwner)
+     * @param to Address to receive the minted tokens
+     * @param amount Amount of tokens to mint (18 decimales)
+     */
+    function mint(address to, uint256 amount) external onlyOwner {
+        require(to != address(0), "Cannot mint to zero address");
+        require(amount > 0, "Mint amount must be greater than zero");
+        totalSupply += amount;
+        _balances[to] += amount;
+        emit Transfer(address(0), to, amount);
+    }
+
     // --- View Functions ---
 
     function getContractBalance() external view returns (uint256) {
