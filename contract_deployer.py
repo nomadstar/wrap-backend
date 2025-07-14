@@ -88,21 +88,23 @@ class ContractDeployer:
     def load_precompiled_contract(self, contract_name):
         """Cargar ABI y bytecode precompilados"""
         try:
-            # En producción, estos archivos se generarían del proceso de build de Hardhat
-            abi_path = os.path.join(os.path.dirname(__file__), 'abi', f'{contract_name}.json')
-            bytecode_path = os.path.join(os.path.dirname(__file__), 'bytecode', f'{contract_name}.txt')
-            
+            # Forzar el uso de los archivos de WrapSell, nunca WrapSellTest
+            if contract_name == 'WrapSell':
+                abi_path = os.path.join(os.path.dirname(__file__), 'abi', 'WrapSell.json')
+                bytecode_path = os.path.join(os.path.dirname(__file__), 'bytecode', 'WrapSell.txt')
+            else:
+                abi_path = os.path.join(os.path.dirname(__file__), 'abi', f'{contract_name}.json')
+                bytecode_path = os.path.join(os.path.dirname(__file__), 'bytecode', f'{contract_name}.txt')
+            print(f"[DEBUG] ABI path usado: {abi_path}")
+            print(f"[DEBUG] Bytecode path usado: {bytecode_path}")
             with open(abi_path, 'r') as f:
                 abi_json = json.load(f)
-                # Si es artefacto de Hardhat, extraer solo el campo 'abi'
                 if isinstance(abi_json, dict) and 'abi' in abi_json:
                     abi = abi_json['abi']
                 else:
                     abi = abi_json
-            
             with open(bytecode_path, 'r') as f:
                 bytecode = f.read().strip()
-            
             return abi, bytecode
         except Exception as e:
             print(f"❌ Error cargando contrato precompilado {contract_name}: {e}")
