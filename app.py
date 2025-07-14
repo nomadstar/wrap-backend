@@ -930,7 +930,7 @@ def get_wrapsell_contracts():
         return jsonify({"error": f"Error fetching WrapSell contracts: {e}"}), 500
 
 # Cargar ABI de WrapSell desde archivo
-with open('abi/WrapSellTest.json') as f:
+with open('abi/WrapSell.json') as f:
     wrapsell_abi = json.load(f)['abi']
 
 if __name__ == '__main__':
