@@ -122,21 +122,11 @@ class CardService:
             deploy_result = None
         # Debug log para ver el tipo y valor de deploy_result
         print("DEBUG deploy_result:", deploy_result, type(deploy_result))
-        # Si falla, intentar con LNK
+        # Si falla el deploy, revertir la carta o marcar como pendiente
         if not deploy_result or not deploy_result.get('success'):
-            symbol = "LNK"
-            try:
-                deploy_result = blockchain_service.deploy_wrapsell_contract(
-                    name=card_data['name'],
-                    symbol=symbol,
-                    card_id=int(card_data['card_id']),
-                    card_name=card_data['name'],
-                    rarity=card_data.get('rarity', ''),
-                    estimated_value_per_card=estimated_value_wei
-                )
-            except Exception as e:
-                deploy_error = str(e)
-                deploy_result = None
+            execute_query(PERMANENT_DELETE_POOL_CARD_QUERY, (new_card_id,))
+            execute_query(PERMANENT_DELETE_CARD_QUERY, (new_card_id,))
+            raise Exception(f"Error al desplegar el contrato inteligente: {deploy_error or (deploy_result and deploy_result.get('error'))}")
         # Registrar el contrato en la base de datos si fue exitoso
         if deploy_result and deploy_result.get('success'):
             execute_query(
