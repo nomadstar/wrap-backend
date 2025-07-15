@@ -82,7 +82,6 @@ class BlockchainService:
             card_name: Name of the card
             rarity: Card rarity
             estimated_value_per_card: Estimated value per card in wei
-            wrap_pool_address: Address of the WrapPool (optional)
         
         Returns:
             dict: Contract deployment result
@@ -104,8 +103,7 @@ class BlockchainService:
                 card_id,
                 card_name,
                 rarity,
-                estimated_value_per_card,
-                wrap_pool_address or '0x0000000000000000000000000000000000000000'
+                estimated_value_per_card
             ]
             
             # Build transaction
