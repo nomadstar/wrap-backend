@@ -758,13 +758,11 @@ def deploy_wrapsell_contract():
             "rarity": rarity,
             "estimated_value_per_card": estimated_value_per_card,
             "admin_wallet": admin_wallet,
-            # "wrap_pool_address": wrap_pool_address,  # <-- NO INCLUIR
-            "wrap_pool": wrap_pool  # <-- SOLO ESTE SI ES NECESARIO
         }
-        # Elimina wrap_pool_address si existe por error
-        deploy_kwargs.pop("wrap_pool_address", None)
+        if wrap_pool:
+            deploy_kwargs["wrap_pool"] = wrap_pool
 
-        deploy_result = blockchain_service.deploy_wrapsell_contract(**data)
+        deploy_result = blockchain_service.deploy_wrapsell_contract(**deploy_kwargs)
         
         if deploy_result['success']:
             # Store contract info in database
