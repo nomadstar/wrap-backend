@@ -115,8 +115,7 @@ class CardService:
                 card_id=int(card_data['card_id']),
                 card_name=card_data['name'],
                 rarity=card_data.get('rarity', ''),
-                estimated_value_per_card=estimated_value_wei,
-                wrap_pool_address=None
+                estimated_value_per_card=estimated_value_wei
             )
         except Exception as e:
             deploy_error = str(e)
@@ -131,8 +130,7 @@ class CardService:
                     card_id=int(card_data['card_id']),
                     card_name=card_data['name'],
                     rarity=card_data.get('rarity', ''),
-                    estimated_value_per_card=estimated_value_wei,
-                    wrap_pool_address=None
+                    estimated_value_per_card=estimated_value_wei
                 )
             except Exception as e:
                 deploy_error = str(e)
