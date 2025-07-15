@@ -6,7 +6,7 @@ import json
 from web3 import Web3
 from eth_account import Account
 import logging
-
+# Ensure each deploy method returns the contract address on success
 logger = logging.getLogger(__name__)
 
 class BlockchainService:
