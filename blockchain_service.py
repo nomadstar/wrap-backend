@@ -98,6 +98,8 @@ class BlockchainService:
             # Get current nonce
             nonce = self.w3.eth.get_transaction_count(self.deployer_address)
             
+            # Dirección del price feed LNK/ETH en Base Sepolia
+            price_feed_address = '0x56a43EB56Da12C0dc1D972ACb089c06a5dEF8e69'
             # Build constructor arguments
             constructor_args = [
                 name,
@@ -105,8 +107,7 @@ class BlockchainService:
                 card_id,
                 card_name,
                 rarity,
-                estimated_value_per_card,
-                wrap_pool_address or '0x0000000000000000000000000000000000000000'
+                price_feed_address
             ]
             
             # Build transaction
