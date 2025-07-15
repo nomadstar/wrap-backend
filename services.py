@@ -6,6 +6,7 @@ from datetime import datetime
 import random
 from queries import *
 from db_utils import *
+from blockchain_service import get_blockchain_service
 
 class UserService:
     """Servicio para manejo de usuarios"""
@@ -114,7 +115,6 @@ class CardService:
     @staticmethod
     def add_card_by_url(url, user_wallet, pool_id=None):
         """Añadir carta usando URL de pricecharting y desplegar contrato inteligente"""
-        from blockchain_service import get_blockchain_service
         # Verificar que el usuario existe
         if not UserService.user_exists(user_wallet):
             raise ValueError("Usuario no encontrado. Debe crear el usuario primero.")
