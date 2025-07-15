@@ -71,8 +71,7 @@ class BlockchainService:
                                 card_id: int,
                                 card_name: str,
                                 rarity: str,
-                                estimated_value_per_card: int,
-                                wrap_pool_address: str = None):
+                                estimated_value_per_card: int):
         """
         Deploy a new WrapSell contract
         
