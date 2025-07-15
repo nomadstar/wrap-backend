@@ -223,31 +223,33 @@ def add_card_by_url():
     """
     try:
         data = request.get_json()
-        
         if not data:
             return jsonify({"error": "JSON requerido"}), 400
-        
+
         url = data.get('url')
         user_wallet = data.get('user_wallet')
         pool_id = data.get('pool_id')
-        
+
         if not url or not user_wallet:
             return jsonify({"error": "url y user_wallet son requeridos"}), 400
-        
+
         # 1. Agregar la carta normalmente
         result = CardService.add_card_by_url(url, user_wallet, pool_id)
         if not result or not result.get('card_id'):
             return jsonify({"error": "No se pudo crear la carta"}), 500
 
         card_id = result['card_id']
-        # Obtener los datos completos de la carta recién creada o existente
         card = CardService.get_card_by_id(card_id)
         if not card:
             return jsonify({"error": "No se pudo obtener la carta recién creada"}), 500
 
-        # Cargar el ABI de WrapSell desde archivo (solo el campo 'abi')
+        # Cargar el ABI de WrapSell desde artifacts
         try:
-            abi_path = os.path.join(os.path.dirname(__file__), 'abi', 'WrapSellTest.json')
+            artifacts_dir = os.path.join(os.path.dirname(__file__), 'contracts', 'artifacts', 'contracts', 'WrapSellTest.sol')
+            abi_path = os.path.join(artifacts_dir, 'WrapSellTest.json')
+            if not os.path.exists(abi_path):
+                # fallback to WrapSell.json if WrapSellTest.json does not exist
+                abi_path = os.path.join(os.path.dirname(__file__), 'contracts', 'artifacts', 'contracts', 'WrapSell.sol', 'WrapSell.json')
             with open(abi_path, 'r', encoding='utf-8') as f:
                 artifact = json.load(f)
                 abi = artifact['abi']
@@ -258,12 +260,9 @@ def add_card_by_url():
         if card.get('wrapsell_contract_address'):
             contract_address = card['wrapsell_contract_address']
             blockchain_service = get_blockchain_service()
-            # Determinar la cantidad de tokens a mintear (ejemplo: 1 carta = 1 token * 1e18)
-            tokens_to_mint = int(1 * 10**18)  # 1 token por carta, ajusta si es necesario
+            tokens_to_mint = int(1 * 10**18)  # 1 token por carta
 
-            # Validar que la wallet que hace la petición es admin
-            api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
-            admin_wallet = user_wallet  # El minteo solo lo puede hacer el admin que recibe el colateral
+            admin_wallet = user_wallet
             if admin_wallet not in ADMIN_WALLETS:
                 return jsonify({"error": "Solo un administrador puede mintear tokens en el contrato."}), 403
 
@@ -296,7 +295,6 @@ def add_card_by_url():
         estimated_value = card.get('market_value', '0.01')
         card_name = card.get('name')
 
-        # Convertir a wei
         try:
             estimated_value_wei = int(float(estimated_value) * 10**18)
         except Exception:
@@ -306,22 +304,16 @@ def add_card_by_url():
             name=name,
             symbol=symbol,
             card_id=int(card_id),
-            card_name=card_name,
             rarity=rarity,
-            estimated_value_per_card=estimated_value_wei,
-            wrap_pool_address=None,
-            abi=abi
+            estimated_value_per_card=estimated_value_wei
         )
 
         if not deploy_result.get('success'):
             return jsonify({"error": f"Error al desplegar contrato: {deploy_result.get('error', 'desconocido')}"}), 500
 
         contract_address = deploy_result['contract_address']
-
-        # 3. Guardar la dirección del contrato en la carta
         CardService.update_card_contract_address(card_id, contract_address)
 
-        # 4. Devolver la respuesta combinada
         result['wrapsell_contract_address'] = contract_address
         result['wrapsell_deploy'] = {
             "transaction_hash": deploy_result['transaction_hash'],
@@ -329,7 +321,7 @@ def add_card_by_url():
             "gas_used": deploy_result['gas_used']
         }
         return jsonify(result), 201
-        
+
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:

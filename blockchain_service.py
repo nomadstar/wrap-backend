@@ -6,7 +6,7 @@ import json
 from web3 import Web3
 from eth_account import Account
 import logging
-
+# Ensure each deploy method returns the contract address on success
 logger = logging.getLogger(__name__)
 
 class BlockchainService:
@@ -71,8 +71,7 @@ class BlockchainService:
                                 card_id: int,
                                 card_name: str,
                                 rarity: str,
-                                estimated_value_per_card: int,
-                                wrap_pool_address: str = None):
+                                estimated_value_per_card: int):
         """
         Deploy a new WrapSell contract
         
@@ -83,7 +82,6 @@ class BlockchainService:
             card_name: Name of the card
             rarity: Card rarity
             estimated_value_per_card: Estimated value per card in wei
-            wrap_pool_address: Address of the WrapPool (optional)
         
         Returns:
             dict: Contract deployment result
