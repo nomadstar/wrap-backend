@@ -245,6 +245,15 @@ def add_card_by_url():
         if not card:
             return jsonify({"error": "No se pudo obtener la carta recién creada"}), 500
 
+        # Cargar el ABI de WrapSell desde archivo (solo el campo 'abi')
+        try:
+            abi_path = os.path.join(os.path.dirname(__file__), 'abi', 'WrapSellTest.json')
+            with open(abi_path, 'r', encoding='utf-8') as f:
+                artifact = json.load(f)
+                abi = artifact['abi']
+        except Exception as e:
+            return jsonify({"error": f"No se pudo cargar el ABI del contrato: {e}"}), 500
+
         # Si la carta ya tiene contrato asociado, mintear tokens en el contrato SOLO si la wallet es admin
         if card.get('wrapsell_contract_address'):
             contract_address = card['wrapsell_contract_address']
@@ -262,7 +271,8 @@ def add_card_by_url():
                 mint_result = blockchain_service.mint_wrapsell_tokens(
                     contract_address=contract_address,
                     to_address=user_wallet,
-                    amount=tokens_to_mint
+                    amount=tokens_to_mint,
+                    abi=abi
                 )
             except Exception as e:
                 return jsonify({"error": f"Error al mintear tokens en el contrato: {e}"}), 500
@@ -299,7 +309,8 @@ def add_card_by_url():
             card_name=card_name,
             rarity=rarity,
             estimated_value_per_card=estimated_value_wei,
-            wrap_pool_address=None
+            wrap_pool_address=None,
+            abi=abi
         )
 
         if not deploy_result.get('success'):
@@ -990,10 +1001,6 @@ def get_wrapsell_contracts():
         return jsonify({"error": f"Error fetching WrapSell contracts: {e}"}), 500
 
 # Cargar ABI de WrapSell desde archivo (solo el campo 'abi')
-import json
-with open('abi/WrapSellTest.json') as f:
-    artifact = json.load(f)
-    abi = artifact['abi']  # Solo el array, no el objeto completo
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
