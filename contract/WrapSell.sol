@@ -1,6 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+interface AggregatorV3Interface {
+    function latestRoundData()
+        external
+        view
+        returns (
+            uint80 roundId,
+            int256 answer,
+            uint256 startedAt,
+            uint256 updatedAt,
+            uint80 answeredInRound
+        );
+}
+
 /**
  * @title WrapSell
  * @dev ERC20 token backed by multiple units of a specific TCG card as collateral
@@ -222,7 +235,8 @@ contract WrapSell {
 
     function getCardValue() public view returns (uint256) {
         if (priceFeed != address(0)) {
-            (, int256 price, , , ) = AggregatorV3Interface(priceFeed).latestRoundData();
+            (, int256 price, , , ) = AggregatorV3Interface(priceFeed)
+                .latestRoundData();
             require(price > 0, "Invalid price");
             return uint256(price);
         } else {

@@ -993,7 +993,7 @@ def get_wrapsell_contracts():
 import json
 with open('abi/WrapSellTest.json') as f:
     artifact = json.load(f)
-    wrapsell_abi = artifact['abi']  # Solo el array ABI, nunca el objeto completo
+    abi = artifact['abi']  # Solo el array, no el objeto completo
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
