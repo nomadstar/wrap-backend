@@ -749,44 +749,22 @@ def deploy_wrapsell_contract():
         # Get blockchain service
         blockchain_service = get_blockchain_service()
 
-        # Deploy contract (solo pasa wrap_pool si está presente, nunca wrap_pool_address)
+        # Construir argumentos sin wrap_pool_address
         deploy_kwargs = {
             "name": name,
             "symbol": symbol,
             "card_id": card_id,
             "card_name": card_name,
             "rarity": rarity,
-            "estimated_value_per_card": estimated_value_per_card,
+            "estimated_value_per_card": estimated_value_wei,
             "admin_wallet": admin_wallet,
         }
         if wrap_pool:
             deploy_kwargs["wrap_pool"] = wrap_pool
 
         deploy_result = blockchain_service.deploy_wrapsell_contract(**deploy_kwargs)
-        
+
         if deploy_result['success']:
-            # Store contract info in database
-            conn = get_db_connection()
-            cur = conn.cursor()
-            
-            cur.execute("""
-                INSERT INTO wrap_sells (
-                    contract_address, name, symbol, card_id, card_name, 
-                    rarity, estimated_value_per_card, owner_wallet, 
-                    wrap_pool_address, total_supply, total_cards_deposited, 
-                    total_tokens_issued, transaction_hash, block_number
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                deploy_result['contract_address'], name, symbol, card_id, card_name,
-                rarity, str(estimated_value_wei), admin_wallet,
-                wrap_pool, '0', 0, '0', 
-                deploy_result['transaction_hash'], deploy_result['block_number']
-            ))
-            
-            conn.commit()
-            cur.close()
-            conn.close()
-            
             return jsonify({
                 "message": "WrapSell contract deployed successfully",
                 "contract_address": deploy_result['contract_address'],
