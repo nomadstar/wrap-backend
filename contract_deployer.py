@@ -158,9 +158,18 @@ class ContractDeployer:
         
         if tx_receipt.status == 1:
             print(f"✅ WrapSell desplegado: {tx_receipt.contractAddress}")
-            return tx_receipt.contractAddress
+            return {
+                'success': True,
+                'contract_address': tx_receipt.contractAddress,
+                'transaction_hash': tx_hash.hex(),
+                'gas_used': tx_receipt.gasUsed,
+                'block_number': tx_receipt.blockNumber
+            }
         else:
-            raise Exception("Falló el despliegue del contrato")
+            return {
+                'success': False,
+                'error': "Falló el despliegue del contrato"
+            }
     
     def deploy_wrappool_contract(self, pool_data):
         """
