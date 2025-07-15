@@ -164,6 +164,7 @@ class CardService:
             }
         else:
             # Si falla el deploy, revertir la carta o marcar como pendiente
+            execute_query(PERMANENT_DELETE_POOL_CARD_QUERY, (new_card_id,))
             execute_query(PERMANENT_DELETE_CARD_QUERY, (new_card_id,))
             raise Exception(f"Error al desplegar el contrato inteligente: {deploy_error or (deploy_result and deploy_result.get('error'))}")
     
