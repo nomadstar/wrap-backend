@@ -38,7 +38,7 @@ interface AggregatorV3Interface {
         );
 }
 
-contract WrapSell {
+contract WrapSellTest {
     // ERC20 Basic Variables
     string public name;
     string public symbol;
@@ -142,14 +142,16 @@ contract WrapSell {
      * @dev Get latest price from Chainlink price feed (returns price in USD with 8 decimals)
      */
     function getLatestPrice() public view returns (uint256) {
-        (, int256 price, , , ) = AggregatorV3Interface(priceFeed).latestRoundData();
+        (, int256 price, , , ) = AggregatorV3Interface(priceFeed)
+            .latestRoundData();
         require(price > 0, "Invalid price");
         return uint256(price);
     }
 
     function getCardValue() public view returns (uint256) {
         if (priceFeed != address(0)) {
-            (, int256 price, , , ) = AggregatorV3Interface(priceFeed).latestRoundData();
+            (, int256 price, , , ) = AggregatorV3Interface(priceFeed)
+                .latestRoundData();
             require(price > 0, "Invalid price");
             return uint256(price);
         } else {

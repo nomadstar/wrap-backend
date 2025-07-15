@@ -38,7 +38,7 @@ interface AggregatorV3Interface {
         );
 }
 
-contract WrapSell {
+contract WrapSellTest {
     // ERC20 Basic Variables
     string public name;
     string public symbol;
