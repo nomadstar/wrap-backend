@@ -736,8 +736,6 @@ def deploy_wrapsell_contract():
         estimated_value_per_card = data.get('estimated_value_per_card')
         admin_wallet = data.get('admin_wallet')
         
-        # Campo opcional: wrap_pool (acepta ambos nombres, pero solo se usará como wrap_pool)
-        wrap_pool = data.get('wrap_pool') or data.get('wrap_pool_address')
 
         if not all([name, symbol, card_id, card_name, rarity, estimated_value_per_card, admin_wallet]):
             return jsonify({"error": "Missing required fields"}), 400
@@ -761,8 +759,6 @@ def deploy_wrapsell_contract():
             "estimated_value_per_card": estimated_value_wei,
             "admin_wallet": admin_wallet,
         }
-        if wrap_pool:
-            deploy_kwargs["wrap_pool"] = wrap_pool
 
         deploy_result = blockchain_service.deploy_wrapsell_contract(**deploy_kwargs)
 
