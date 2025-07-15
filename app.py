@@ -304,7 +304,6 @@ def add_card_by_url():
             name=name,
             symbol=symbol,
             card_id=int(card_id),
-            card_name=card_name,
             rarity=rarity,
             estimated_value_per_card=estimated_value_wei
         )
