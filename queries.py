@@ -189,6 +189,11 @@ GET_WRAP_SELLS_QUERY = """
 """
 
 INSERT_WRAP_SELL_QUERY = """
+    -- DEBUG: La siguiente consulta espera 15 valores en la tupla:
+    -- contract_address, name, symbol, card_id, card_name, rarity,
+    -- estimated_value_per_card, owner_wallet, wrap_pool_address,
+    -- total_supply, total_cards_deposited, total_tokens_issued,
+    -- transaction_hash, block_number, gas_used
     INSERT INTO wrap_sells (
         contract_address, name, symbol, card_id, card_name, rarity,
         estimated_value_per_card, owner_wallet, wrap_pool_address,
@@ -198,6 +203,13 @@ INSERT_WRAP_SELL_QUERY = """
     RETURNING id;
 """
 
+# Utilidad para debug: imprime la consulta y la tupla de valores antes de ejecutar un INSERT
+def debug_print_insert(query, values):
+    print("\n[DEBUG SQL INSERT]")
+    print("Consulta SQL:")
+    print(query)
+    print("Valores:")
+    print(values)
 GET_WRAP_POOL_SUMMARY_QUERY = """
     SELECT 
         wp.*,
