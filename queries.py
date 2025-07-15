@@ -1,4 +1,3 @@
-address# queries.py
 # Archivo centralizado para todas las consultas SQL de la aplicación
 
 # === CONSULTAS DE USUARIOS ===
