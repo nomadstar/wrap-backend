@@ -307,8 +307,7 @@ def add_card_by_url():
             card_name=card_name,
             rarity=rarity,
             estimated_value_per_card=estimated_value_wei,
-            wrap_pool_address=None,
-            abi=abi
+            wrap_pool_address=None
         )
 
         if not deploy_result.get('success'):
