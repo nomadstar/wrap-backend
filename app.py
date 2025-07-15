@@ -989,9 +989,11 @@ def get_wrapsell_contracts():
     except Exception as e:
         return jsonify({"error": f"Error fetching WrapSell contracts: {e}"}), 500
 
-# Cargar ABI de WrapSell desde archivo
+# Cargar ABI de WrapSell desde archivo (solo el campo 'abi')
+import json
 with open('abi/WrapSellTest.json') as f:
-    wrapsell_abi = json.load(f)['abi']
+    artifact = json.load(f)
+    abi = artifact['abi']  # Solo el array, no el objeto completo
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
