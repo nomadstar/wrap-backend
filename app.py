@@ -305,7 +305,8 @@ def add_card_by_url():
             symbol=symbol,
             card_id=int(card_id),
             rarity=rarity,
-            estimated_value_per_card=estimated_value_wei
+            estimated_value_per_card=estimated_value_wei,
+            wrap_pool=pool_id  # Use 'wrap_pool' instead of 'wrap_pool_address'
         )
 
         if not deploy_result.get('success'):
