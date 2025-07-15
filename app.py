@@ -734,7 +734,7 @@ def deploy_wrapsell_contract():
         admin_wallet = data.get('admin_wallet')
         
         # Optional fields
-        wrap_pool = data.get('wrap_pool_address')
+        wrap_pool = data.get('wrap_pool') or data.get('wrap_pool_address')
 
         if not all([name, symbol, card_id, card_name, rarity, estimated_value_per_card, admin_wallet]):
             return jsonify({"error": "Missing required fields"}), 400
