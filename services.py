@@ -120,6 +120,8 @@ class CardService:
         except Exception as e:
             deploy_error = str(e)
             deploy_result = None
+        # Debug log para ver el tipo y valor de deploy_result
+        print("DEBUG deploy_result:", deploy_result, type(deploy_result))
         # Si falla, intentar con LNK
         if not deploy_result or not deploy_result.get('success'):
             symbol = "LNK"
