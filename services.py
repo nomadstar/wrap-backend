@@ -38,29 +38,6 @@ class CardService:
     """Servicio para manejo de cartas"""
     
     @staticmethod
-    def get_all_cards():
-        """Obtener todas las cartas"""
-        return execute_query_with_columns(GET_ALL_CARDS_QUERY)
-    
-    @staticmethod
-    def get_card_by_id(card_id):
-        """Obtener una carta por ID"""
-        card = execute_query_with_columns(GET_CARD_BY_ID_QUERY, (card_id,), fetch_one=True)
-        if not card:
-            raise ValueError("Carta no encontrada")
-        return card
-    
-    @staticmethod
-    def get_user_cards(wallet_address):
-        """Obtener cartas de un usuario"""
-        return execute_query_with_columns(GET_USER_CARDS_QUERY, (wallet_address,))
-    
-    @staticmethod
-    def get_total_collection_value():
-        """Obtener valor total de la colección"""
-        total = execute_query(GET_ACTIVE_CARDS_TOTAL_VALUE_QUERY, fetch_one=True)[0]
-        return float(total) if total else 0.0
-    
     def _extract_card_data(url):
         card_data = extraer.extract_ungraded_card_data_by_link(url)
         print("DEBUG card_data:", card_data, type(card_data))
@@ -68,6 +45,7 @@ class CardService:
             raise ValueError("No se pudieron extraer los datos de la carta desde la URL")
         return card_data
 
+    @staticmethod
     def _insert_card(card_data, user_wallet, pool_id):
         new_card_id = execute_query(
             INSERT_CARD_QUERY,
@@ -86,6 +64,7 @@ class CardService:
             execute_query(INSERT_POOL_CARD_QUERY, (new_card_id, user_wallet))
         return new_card_id
 
+    @staticmethod
     def _deploy_contract(card_data):
         blockchain_service = get_blockchain_service()
         symbol = "ETH"
@@ -109,6 +88,30 @@ class CardService:
         return deploy_result
 
     @staticmethod
+    def get_all_cards():
+        """Obtener todas las cartas"""
+        return execute_query_with_columns(GET_ALL_CARDS_QUERY)
+    
+    @staticmethod
+    def get_card_by_id(card_id):
+        """Obtener una carta por ID"""
+        card = execute_query_with_columns(GET_CARD_BY_ID_QUERY, (card_id,), fetch_one=True)
+        if not card:
+            raise ValueError("Carta no encontrada")
+        return card
+    
+    @staticmethod
+    def get_user_cards(wallet_address):
+        """Obtener cartas de un usuario"""
+        return execute_query_with_columns(GET_USER_CARDS_QUERY, (wallet_address,))
+    
+    @staticmethod
+    def get_total_collection_value():
+        """Obtener valor total de la colección"""
+        total = execute_query(GET_ACTIVE_CARDS_TOTAL_VALUE_QUERY, fetch_one=True)[0]
+        return float(total) if total else 0.0
+    
+    @staticmethod
     def add_card_by_url(url, user_wallet, pool_id=None):
         """Añadir carta usando URL de pricecharting y desplegar contrato inteligente"""
         from blockchain_service import get_blockchain_service
@@ -119,11 +122,11 @@ class CardService:
         if pool_id and not PoolService.pool_exists(pool_id):
             raise ValueError("Pool no encontrado")
         # Extraer datos de la carta
-        card_data = _extract_card_data(url)
+        card_data = CardService._extract_card_data(url)
         # Insertar la carta
-        new_card_id = _insert_card(card_data, user_wallet, pool_id)
+        new_card_id = CardService._insert_card(card_data, user_wallet, pool_id)
         # Desplegar contrato inteligente
-        deploy_result = _deploy_contract(card_data)
+        deploy_result = CardService._deploy_contract(card_data)
         # Si falla el deploy, revertir la carta o marcar como pendiente
         if not isinstance(deploy_result, dict) or not deploy_result.get('success'):
             execute_query(PERMANENT_DELETE_POOL_CARD_QUERY, (new_card_id,))
