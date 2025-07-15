@@ -41,24 +41,23 @@ class BlockchainService:
             # Load WrapSell contract ABI and bytecode
             with open(os.path.join(current_dir, 'abi/WrapSellTest.json'), 'r') as f:
                 wrapsell_artifact = json.load(f)
-            
-            with open(os.path.join(current_dir, 'bytecode/WrapSell.txt'), 'r') as f:
-                wrapsell_bytecode = wrapsell_artifact['bytecode']
+            wrapsell_abi = wrapsell_artifact['abi']
+            wrapsell_bytecode = wrapsell_artifact['bytecode']
             
             # Load WrapPool contract ABI and bytecode
             with open(os.path.join(current_dir, 'abi/WrapPool.json'), 'r') as f:
                 wrappool_artifact = json.load(f)
-            
+            wrappool_abi = wrappool_artifact['abi']
             with open(os.path.join(current_dir, 'bytecode/WrapPool.txt'), 'r') as f:
                 wrappool_bytecode = f.read().strip()
             
             return {
                 'WrapSell': {
-                    'abi': wrapsell_artifact,
+                    'abi': wrapsell_abi,
                     'bytecode': wrapsell_bytecode
                 },
                 'WrapPool': {
-                    'abi': wrappool_artifact,
+                    'abi': wrappool_abi,
                     'bytecode': wrappool_bytecode
                 }
             }
