@@ -1,4 +1,4 @@
-# queries.py
+address# queries.py
 # Archivo centralizado para todas las consultas SQL de la aplicación
 
 # === CONSULTAS DE USUARIOS ===
@@ -190,7 +190,7 @@ GET_WRAP_SELLS_QUERY = """
 
 INSERT_WRAP_SELL_QUERY = """
     INSERT INTO wrap_sells (
-        contract_address, wrap_pool_address, seller_address, 
+        contract_address, wrap_pool_address, 
         card_ids, asking_price, status, blockchain_network
     ) VALUES (%s, %s, %s, %s, %s, %s, %s)
     RETURNING id;
