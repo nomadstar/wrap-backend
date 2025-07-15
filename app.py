@@ -240,7 +240,7 @@ def add_card_by_url():
 
         card_id = result['card_id']
         card = CardService.get_card_by_id(card_id)
-        if not card:
+        if not isinstance(card, dict):
             return jsonify({"error": "No se pudo obtener la carta recién creada"}), 500
 
         # Cargar el ABI de WrapSell desde artifacts
