@@ -193,8 +193,8 @@ INSERT_WRAP_SELL_QUERY = """
         contract_address, name, symbol, card_id, card_name, rarity,
         estimated_value_per_card, owner_wallet, wrap_pool_address,
         total_supply, total_cards_deposited, total_tokens_issued,
-        created_at, updated_at, transaction_hash, block_number, gas_used
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        transaction_hash, block_number, gas_used
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     RETURNING id;
 """
 
