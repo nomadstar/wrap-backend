@@ -734,30 +734,32 @@ def deploy_wrapsell_contract():
         admin_wallet = data.get('admin_wallet')
         
         # Optional fields
-        wrap_pool_address = data.get('wrap_pool_address')
-        
+        wrap_pool = data.get('wrap_pool_address')
+
         if not all([name, symbol, card_id, card_name, rarity, estimated_value_per_card, admin_wallet]):
             return jsonify({"error": "Missing required fields"}), 400
-        
+
         # Convert estimated value to wei (assuming it's provided in ETH)
         try:
             estimated_value_wei = int(float(estimated_value_per_card) * 10**18)
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid estimated_value_per_card format"}), 400
-        
+
         # Get blockchain service
         blockchain_service = get_blockchain_service()
-        
-        # Deploy contract
-        result = blockchain_service.deploy_wrapsell_contract(
+
+        # Deploy contract (solo pasa wrap_pool si está presente)
+        deploy_kwargs = dict(
             name=name,
             symbol=symbol,
             card_id=int(card_id),
             card_name=card_name,
             rarity=rarity,
-            estimated_value_per_card=estimated_value_wei,
-            wrap_pool_address=wrap_pool_address
+            estimated_value_per_card=estimated_value_wei
         )
+        if wrap_pool:
+            deploy_kwargs['wrap_pool'] = wrap_pool
+        result = blockchain_service.deploy_wrapsell_contract(**deploy_kwargs)
         
         if result['success']:
             # Store contract info in database
@@ -774,7 +776,7 @@ def deploy_wrapsell_contract():
             """, (
                 result['contract_address'], name, symbol, card_id, card_name,
                 rarity, str(estimated_value_wei), admin_wallet,
-                wrap_pool_address, '0', 0, '0', 
+                wrap_pool, '0', 0, '0', 
                 result['transaction_hash'], result['block_number']
             ))
             
