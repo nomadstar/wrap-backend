@@ -300,12 +300,15 @@ def add_card_by_url():
         except Exception:
             estimated_value_wei = 0
 
+        # Use the exact same parameter structure as the working /contracts/wrapsell/deploy endpoint
         deploy_result = blockchain_service.deploy_wrapsell_contract(
             name=name,
             symbol=symbol,
             card_id=int(card_id),
+            card_name=card_name,
             rarity=rarity,
             estimated_value_per_card=estimated_value_wei
+            # Remove wrap_pool parameter completely for now
         )
 
         if not deploy_result.get('success'):
@@ -733,8 +736,6 @@ def deploy_wrapsell_contract():
         estimated_value_per_card = data.get('estimated_value_per_card')
         admin_wallet = data.get('admin_wallet')
         
-        # Optional fields
-        wrap_pool = data.get('wrap_pool_address')
 
         if not all([name, symbol, card_id, card_name, rarity, estimated_value_per_card, admin_wallet]):
             return jsonify({"error": "Missing required fields"}), 400
@@ -748,52 +749,30 @@ def deploy_wrapsell_contract():
         # Get blockchain service
         blockchain_service = get_blockchain_service()
 
-        # Deploy contract (solo pasa wrap_pool si está presente)
-        deploy_kwargs = dict(
-            name=name,
-            symbol=symbol,
-            card_id=int(card_id),
-            card_name=card_name,
-            rarity=rarity,
-            estimated_value_per_card=estimated_value_wei
-        )
-        if wrap_pool:
-            deploy_kwargs['wrap_pool'] = wrap_pool
-        result = blockchain_service.deploy_wrapsell_contract(**deploy_kwargs)
-        
-        if result['success']:
-            # Store contract info in database
-            conn = get_db_connection()
-            cur = conn.cursor()
-            
-            cur.execute("""
-                INSERT INTO wrap_sells (
-                    contract_address, name, symbol, card_id, card_name, 
-                    rarity, estimated_value_per_card, owner_wallet, 
-                    wrap_pool_address, total_supply, total_cards_deposited, 
-                    total_tokens_issued, transaction_hash, block_number
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                result['contract_address'], name, symbol, card_id, card_name,
-                rarity, str(estimated_value_wei), admin_wallet,
-                wrap_pool, '0', 0, '0', 
-                result['transaction_hash'], result['block_number']
-            ))
-            
-            conn.commit()
-            cur.close()
-            conn.close()
-            
+        # Construir argumentos sin wrap_pool_address
+        deploy_kwargs = {
+            "name": name,
+            "symbol": symbol,
+            "card_id": card_id,
+            "card_name": card_name,
+            "rarity": rarity,
+            "estimated_value_per_card": estimated_value_wei,
+            "admin_wallet": admin_wallet,
+        }
+
+        deploy_result = blockchain_service.deploy_wrapsell_contract(**deploy_kwargs)
+
+        if deploy_result['success']:
             return jsonify({
                 "message": "WrapSell contract deployed successfully",
-                "contract_address": result['contract_address'],
-                "transaction_hash": result['transaction_hash'],
-                "gas_used": result['gas_used'],
-                "block_number": result['block_number']
+                "contract_address": deploy_result['contract_address'],
+                "transaction_hash": deploy_result['transaction_hash'],
+                "gas_used": deploy_result['gas_used'],
+                "block_number": deploy_result['block_number']
             }), 201
         else:
             return jsonify({
-                "error": f"Contract deployment failed: {result['error']}"
+                "error": f"Contract deployment failed: {deploy_result['error']}"
             }), 500
             
     except Exception as e:
