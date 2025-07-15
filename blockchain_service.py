@@ -151,6 +151,12 @@ class BlockchainService:
                 
         except Exception as e:
             logger.error(f"Error deploying WrapSell contract: {e}")
+            # Manejo defensivo: si el error es un string con .get, lo reporto claramente
+            if hasattr(e, 'args') and e.args and isinstance(e.args[0], str) and "'str' object has no attribute 'get'" in e.args[0]:
+                return {
+                    'success': False,
+                    'error': 'Error interno: se intentó usar .get sobre un string. Revisa el flujo de deploy_wrapsell_contract.'
+                }
             return {
                 'success': False,
                 'error': str(e)
