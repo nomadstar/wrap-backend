@@ -733,7 +733,7 @@ def deploy_wrapsell_contract():
         estimated_value_per_card = data.get('estimated_value_per_card')
         admin_wallet = data.get('admin_wallet')
         
-        # Optional fields
+        # Campo opcional: wrap_pool (acepta ambos nombres, pero solo se usará como wrap_pool)
         wrap_pool = data.get('wrap_pool') or data.get('wrap_pool_address')
 
         if not all([name, symbol, card_id, card_name, rarity, estimated_value_per_card, admin_wallet]):
@@ -748,7 +748,7 @@ def deploy_wrapsell_contract():
         # Get blockchain service
         blockchain_service = get_blockchain_service()
 
-        # Deploy contract (solo pasa wrap_pool si está presente)
+        # Deploy contract (solo pasa wrap_pool si está presente, nunca wrap_pool_address)
         deploy_kwargs = dict(
             name=name,
             symbol=symbol,
@@ -759,6 +759,9 @@ def deploy_wrapsell_contract():
         )
         if wrap_pool:
             deploy_kwargs['wrap_pool'] = wrap_pool
+        # Eliminar cualquier clave wrap_pool_address si accidentalmente está presente
+        if 'wrap_pool_address' in deploy_kwargs:
+            del deploy_kwargs['wrap_pool_address']
         result = blockchain_service.deploy_wrapsell_contract(**deploy_kwargs)
         
         if result['success']:
