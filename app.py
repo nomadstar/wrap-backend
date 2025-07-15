@@ -300,14 +300,15 @@ def add_card_by_url():
         except Exception:
             estimated_value_wei = 0
 
-        # Fix: Use 'wrap_pool' parameter instead of 'wrap_pool_address'
+        # Use the exact same parameter structure as the working /contracts/wrapsell/deploy endpoint
         deploy_result = blockchain_service.deploy_wrapsell_contract(
             name=name,
             symbol=symbol,
             card_id=int(card_id),
+            card_name=card_name,
             rarity=rarity,
-            estimated_value_per_card=estimated_value_wei,
-            wrap_pool=pool_id  # Changed from wrap_pool_address to wrap_pool
+            estimated_value_per_card=estimated_value_wei
+            # Remove wrap_pool parameter completely for now
         )
 
         if not deploy_result.get('success'):
