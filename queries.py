@@ -177,9 +177,10 @@ GET_WRAP_POOLS_QUERY = """
 
 INSERT_WRAP_POOL_QUERY = """
     INSERT INTO wrap_pools (
-        contract_address, pool_name, tcg_type, creator_address, 
-        minimum_investment, target_value, status, blockchain_network
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        contract_address, name, symbol, owner_wallet, 
+        collateralization_ratio, total_supply, total_collateral_value,
+        is_healthy, created_at, updated_at, transaction_hash, block_number, gas_used
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     RETURNING id;
 """
 
@@ -189,36 +190,39 @@ GET_WRAP_SELLS_QUERY = """
 
 INSERT_WRAP_SELL_QUERY = """
     INSERT INTO wrap_sells (
-        contract_address, wrap_pool_address, 
-        card_ids, asking_price, status, blockchain_network
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+        contract_address, name, symbol, card_id, card_name, rarity,
+        estimated_value_per_card, owner_wallet, wrap_pool_address,
+        total_supply, total_cards_deposited, total_tokens_issued,
+        created_at, updated_at, transaction_hash, block_number, gas_used
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     RETURNING id;
 """
 
 GET_WRAP_POOL_SUMMARY_QUERY = """
     SELECT 
         wp.*,
+        COUNT(DISTINCT ws.contract_address) as total_wrapsells,
         COUNT(DISTINCT c.id) as total_cards,
-        COUNT(DISTINCT c.user_wallet) as total_investors,
-        COALESCE(SUM(c.market_value), 0) as total_value
+        COALESCE(SUM(c.market_value), 0) as legacy_total_value
     FROM wrap_pools wp
-    LEFT JOIN cards c ON wp.id = c.pool_id AND c.removed_at IS NULL
+    LEFT JOIN wrap_sells ws ON wp.contract_address = ws.wrap_pool_address
+    LEFT JOIN cards c ON ws.contract_address = c.wrap_sell_address
     WHERE wp.contract_address = %s
-    GROUP BY wp.id;
+    GROUP BY wp.contract_address, wp.name, wp.symbol, wp.total_supply, 
+             wp.total_collateral_value, wp.collateralization_ratio, wp.is_healthy, wp.id, wp.created_at, wp.updated_at, wp.transaction_hash, wp.block_number, wp.gas_used;
 """
 
 GET_USER_POSITIONS_QUERY = """
     SELECT 
         wp.contract_address,
-        wp.pool_name,
-        wp.tcg_type,
-        COUNT(c.id) as cards_owned,
-        COALESCE(SUM(c.market_value), 0) as investment_value
+        wp.name,
+        wp.symbol,
+        COUNT(ws.contract_address) as wrap_sells_owned,
+        COALESCE(SUM(ws.total_supply), 0) as total_tokens_issued
     FROM wrap_pools wp
-    INNER JOIN cards c ON wp.id = c.pool_id
-    WHERE c.user_wallet = %s AND c.removed_at IS NULL
-    GROUP BY wp.id, wp.contract_address, wp.pool_name, wp.tcg_type
-    ORDER BY investment_value DESC;
+    LEFT JOIN wrap_sells ws ON wp.contract_address = ws.wrap_pool_address
+    WHERE ws.owner_wallet = %s
+    GROUP BY wp.contract_address, wp.name, wp.symbol;
 """
 
 INSERT_PENDING_DEPLOYMENT_QUERY = """
