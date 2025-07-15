@@ -6,6 +6,7 @@ import json
 from web3 import Web3
 from eth_account import Account
 import logging
+import traceback
 # Ensure each deploy method returns the contract address on success
 logger = logging.getLogger(__name__)
 
@@ -151,6 +152,8 @@ class BlockchainService:
                 
         except Exception as e:
             logger.error(f"Error deploying WrapSell contract: {e}")
+            print("DEBUG EXCEPTION deploy_wrapsell_contract:", e, type(e))
+            traceback.print_exc()
             # Manejo defensivo: si el error es un string con .get, lo reporto claramente
             if hasattr(e, 'args') and e.args and isinstance(e.args[0], str) and "'str' object has no attribute 'get'" in e.args[0]:
                 return {
