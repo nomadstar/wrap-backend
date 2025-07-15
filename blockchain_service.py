@@ -16,7 +16,9 @@ class BlockchainService:
         self.chain_id = int(os.getenv('CHAIN_ID', '137'))  # Polygon mainnet
         self.private_key = os.getenv('DEPLOYER_PRIVATE_KEY')
         self.gas_price = int(os.getenv('GAS_PRICE', '30000000000'))  # 30 gwei
-        
+
+        print(f"[BlockchainService] RPC_URL usado: {self.rpc_url}")
+        print(f"[BlockchainService] CHAIN_ID usado: {self.chain_id}")
         if not self.private_key:
             raise ValueError("DEPLOYER_PRIVATE_KEY environment variable is required")
         
