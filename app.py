@@ -750,22 +750,23 @@ def deploy_wrapsell_contract():
         blockchain_service = get_blockchain_service()
 
         # Deploy contract (solo pasa wrap_pool si está presente, nunca wrap_pool_address)
-        deploy_kwargs = dict(
-            name=name,
-            symbol=symbol,
-            card_id=int(card_id),
-            card_name=card_name,
-            rarity=rarity,
-            estimated_value_per_card=estimated_value_wei
-        )
-        if wrap_pool:
-            deploy_kwargs['wrap_pool'] = wrap_pool
-        # Eliminar cualquier clave wrap_pool_address si accidentalmente está presente
-        if 'wrap_pool_address' in deploy_kwargs:
-            del deploy_kwargs['wrap_pool_address']
-        result = blockchain_service.deploy_wrapsell_contract(**deploy_kwargs)
+        deploy_kwargs = {
+            "name": name,
+            "symbol": symbol,
+            "card_id": card_id,
+            "card_name": card_name,
+            "rarity": rarity,
+            "estimated_value_per_card": estimated_value_per_card,
+            "admin_wallet": admin_wallet,
+            # "wrap_pool_address": wrap_pool_address,  # <-- NO INCLUIR
+            "wrap_pool": wrap_pool  # <-- SOLO ESTE SI ES NECESARIO
+        }
+        # Elimina wrap_pool_address si existe por error
+        deploy_kwargs.pop("wrap_pool_address", None)
+
+        deploy_result = blockchain_service.deploy_wrapsell_contract(**data)
         
-        if result['success']:
+        if deploy_result['success']:
             # Store contract info in database
             conn = get_db_connection()
             cur = conn.cursor()
@@ -778,10 +779,10 @@ def deploy_wrapsell_contract():
                     total_tokens_issued, transaction_hash, block_number
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
-                result['contract_address'], name, symbol, card_id, card_name,
+                deploy_result['contract_address'], name, symbol, card_id, card_name,
                 rarity, str(estimated_value_wei), admin_wallet,
                 wrap_pool, '0', 0, '0', 
-                result['transaction_hash'], result['block_number']
+                deploy_result['transaction_hash'], deploy_result['block_number']
             ))
             
             conn.commit()
@@ -790,14 +791,14 @@ def deploy_wrapsell_contract():
             
             return jsonify({
                 "message": "WrapSell contract deployed successfully",
-                "contract_address": result['contract_address'],
-                "transaction_hash": result['transaction_hash'],
-                "gas_used": result['gas_used'],
-                "block_number": result['block_number']
+                "contract_address": deploy_result['contract_address'],
+                "transaction_hash": deploy_result['transaction_hash'],
+                "gas_used": deploy_result['gas_used'],
+                "block_number": deploy_result['block_number']
             }), 201
         else:
             return jsonify({
-                "error": f"Contract deployment failed: {result['error']}"
+                "error": f"Contract deployment failed: {deploy_result['error']}"
             }), 500
             
     except Exception as e:
