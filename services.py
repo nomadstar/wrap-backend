@@ -142,7 +142,7 @@ class CardService:
                 int(card_data['card_id']),                       # card_id
                 card_data['name'],                               # card_name
                 card_data.get('rarity', 'Common'),               # rarity
-                int(float(card_data.get('market_value', 0)) * 10**18),  # estimated_value_per_card (wei)
+                float(card_data.get('market_value', 0)),         # estimated_value_per_card (ETH, no wei)
                 user_wallet,                                     # owner_wallet
                 None,                                            # wrap_pool_address
                 0,                                               # total_supply
