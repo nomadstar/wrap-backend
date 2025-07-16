@@ -1,9 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import urllib.parse
 import os
 import psycopg2
-import extraer
 from functools import wraps
 import sys
 import json
@@ -76,7 +74,6 @@ def initialize_database():
 app = Flask(__name__)
 
 # Configurar CORS para permitir cualquier origen, pero solo si la solicitud incluye la clave API
-from flask_cors import cross_origin
 
 # Permitir cualquier origen, pero solo para rutas que requieren API key
 CORS(app, origins="*", supports_credentials=True)
@@ -239,7 +236,14 @@ def add_card_by_url():
             return jsonify({"error": "No se pudo crear la carta"}), 500
 
         card_id = result['card_id']
-        card = CardService.get_card_by_id(card_id)
+        card_row = CardService.get_card_by_id(card_id)
+        # Convert tuple to dict if necessary
+        if isinstance(card_row, tuple):
+            # You need to know the column names, for example:
+            card_columns = ['id', 'name', 'edition', 'rarity', 'market_value', 'wrapsell_contract_address']  # Update with actual columns
+            card = dict(zip(card_columns, card_row))
+        else:
+            card = card_row
         if not isinstance(card, dict):
             return jsonify({"error": "No se pudo obtener la carta recién creada"}), 500
 
