@@ -189,7 +189,8 @@ GET_WRAP_SELLS_QUERY = """
 """
 
 INSERT_WRAP_SELL_QUERY = """
-    -- La siguiente consulta espera 12 valores en la tupla, en este orden:
+    -- La siguiente consulta espera 15 valores en la tupla, en este orden:
+    -- Campos básicos:
     -- 1. contract_address: VARCHAR(42) - Dirección del contrato
     -- 2. name: VARCHAR(100) - Nombre del token
     -- 3. symbol: VARCHAR(10) - Símbolo del token
@@ -202,12 +203,16 @@ INSERT_WRAP_SELL_QUERY = """
     -- 10. total_supply: DECIMAL(28,18) - Supply total del token (default 0)
     -- 11. total_cards_deposited: INTEGER - Total de cartas depositadas (default 0)
     -- 12. total_tokens_issued: DECIMAL(28,18) - Total de tokens emitidos (default 0)
-    -- Nota: created_at y updated_at se generan automáticamente
+    -- Campos de blockchain (de 03_blockchain_migration.sql):
+    -- 13. transaction_hash: VARCHAR(66) - Hash de la transacción
+    -- 14. block_number: BIGINT - Número de bloque
+    -- 15. gas_used: BIGINT - Gas utilizado
     INSERT INTO wrap_sells (
         contract_address, name, symbol, card_id, card_name, rarity,
         estimated_value_per_card, owner_wallet, wrap_pool_address,
-        total_supply, total_cards_deposited, total_tokens_issued
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        total_supply, total_cards_deposited, total_tokens_issued,
+        transaction_hash, block_number, gas_used
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     RETURNING id;
 """
 
@@ -216,8 +221,14 @@ def debug_print_insert(query, values):
     print("\n[DEBUG SQL INSERT]")
     print("Consulta SQL:")
     print(query)
-    print("Valores:")
-    print(values)
+    print("\nValores proporcionados ({} valores):".format(len(values) if values else 0))
+    if values:
+        for i, value in enumerate(values, 1):
+            print(f"{i}. {value} ({type(value).__name__})")
+    else:
+        print("¡No se proporcionaron valores!")
+    print("\n")
+
 GET_WRAP_POOL_SUMMARY_QUERY = """
     SELECT 
         wp.*,
