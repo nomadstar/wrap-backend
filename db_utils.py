@@ -72,25 +72,27 @@ def execute_query_with_columns(query, params=None, fetch_one=False):
     """
     Ejecuta una consulta y retorna el resultado con nombres de columnas
     """
+    import logging
     conn = None
     cur = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        
         cur.execute(query, params or ())
-        
         columns = [desc[0] for desc in cur.description]
-        
         if fetch_one:
             row = cur.fetchone()
             if row:
+                if len(columns) != len(row):
+                    print(f"[DEBUG] Desajuste columnas/valores: columnas={columns}, valores={row}, n_col={len(columns)}, n_val={len(row)}")
                 return dict(zip(columns, row))
             return None
         else:
             rows = cur.fetchall()
+            for r in rows:
+                if len(columns) != len(r):
+                    print(f"[DEBUG] Desajuste columnas/valores: columnas={columns}, valores={r}, n_col={len(columns)}, n_val={len(r)}")
             return [dict(zip(columns, row)) for row in rows]
-            
     except Exception as e:
         raise e
     finally:
