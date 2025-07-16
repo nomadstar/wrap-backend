@@ -136,21 +136,18 @@ class CardService:
         execute_query(
             INSERT_WRAP_SELL_QUERY,
             (
-                deploy_result['contract_address'],                # 1. contract_address
-                card_data['name'],                               # 2. name
-                (card_data['name'][:3] if card_data['name'] else "WRP").upper(),  # 3. symbol
-                int(card_data['card_id']),                       # 4. card_id
-                card_data['name'],                               # 5. card_name
-                card_data.get('rarity', 'Common'),               # 6. rarity
-                int(float(card_data.get('market_value', 0)) * 10**18),  # 7. estimated_value_per_card (wei)
-                user_wallet,                                     # 8. owner_wallet
-                None,                                            # 9. wrap_pool_address
-                0,                                               # 10. total_supply
-                0,                                               # 11. total_cards_deposited
-                0,                                               # 12. total_tokens_issued
-                deploy_result.get('transaction_hash'),           # 13. transaction_hash
-                deploy_result.get('block_number'),               # 14. block_number
-                deploy_result.get('gas_used'),                   # 15. gas_used
+                deploy_result['contract_address'],                # contract_address
+                card_data['name'],                               # name
+                (card_data['name'][:3] if card_data['name'] else "WRP").upper(),  # symbol
+                int(card_data['card_id']),                       # card_id
+                card_data['name'],                               # card_name
+                card_data.get('rarity', 'Common'),               # rarity
+                int(float(card_data.get('market_value', 0)) * 10**18),  # estimated_value_per_card (wei)
+                user_wallet,                                     # owner_wallet
+                None,                                            # wrap_pool_address
+                0,                                               # total_supply
+                0,                                               # total_cards_deposited
+                0,                                               # total_tokens_issued
             )
         )
         return {
