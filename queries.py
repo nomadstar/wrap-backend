@@ -189,17 +189,25 @@ GET_WRAP_SELLS_QUERY = """
 """
 
 INSERT_WRAP_SELL_QUERY = """
-    -- DEBUG: La siguiente consulta espera 15 valores en la tupla:
-    -- contract_address, name, symbol, card_id, card_name, rarity,
-    -- estimated_value_per_card, owner_wallet, wrap_pool_address,
-    -- total_supply, total_cards_deposited, total_tokens_issued,
-    -- transaction_hash, block_number, gas_used
+    -- La siguiente consulta espera 12 valores en la tupla, en este orden:
+    -- 1. contract_address: VARCHAR(42) - Dirección del contrato
+    -- 2. name: VARCHAR(100) - Nombre del token
+    -- 3. symbol: VARCHAR(10) - Símbolo del token
+    -- 4. card_id: INTEGER - ID único de la carta
+    -- 5. card_name: VARCHAR(255) - Nombre de la carta
+    -- 6. rarity: VARCHAR(50) - Rareza de la carta
+    -- 7. estimated_value_per_card: DECIMAL(28,18) - Valor estimado por carta en wei
+    -- 8. owner_wallet: VARCHAR(42) - Dirección del propietario
+    -- 9. wrap_pool_address: VARCHAR(42) - Dirección del WrapPool asociado
+    -- 10. total_supply: DECIMAL(28,18) - Supply total del token (default 0)
+    -- 11. total_cards_deposited: INTEGER - Total de cartas depositadas (default 0)
+    -- 12. total_tokens_issued: DECIMAL(28,18) - Total de tokens emitidos (default 0)
+    -- Nota: created_at y updated_at se generan automáticamente
     INSERT INTO wrap_sells (
         contract_address, name, symbol, card_id, card_name, rarity,
         estimated_value_per_card, owner_wallet, wrap_pool_address,
-        total_supply, total_cards_deposited, total_tokens_issued,
-        transaction_hash, block_number, gas_used
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        total_supply, total_cards_deposited, total_tokens_issued
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     RETURNING id;
 """
 
