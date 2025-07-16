@@ -136,13 +136,21 @@ class CardService:
         execute_query(
             INSERT_WRAP_SELL_QUERY,
             (
-                deploy_result['contract_address'],
-                None,  # wrap_pool_address
-                user_wallet,  # seller_address
-                str(card_data['card_id']),  # card_ids (puede ser string o lista)
-                str(card_data.get('market_value', 0)),  # asking_price
-                'active',  # status
-                "ETH"  # blockchain_network
+                deploy_result['contract_address'],                # 1. contract_address
+                card_data['name'],                               # 2. name
+                (card_data['name'][:3] if card_data['name'] else "WRP").upper(),  # 3. symbol
+                int(card_data['card_id']),                       # 4. card_id
+                card_data['name'],                               # 5. card_name
+                card_data.get('rarity', 'Common'),               # 6. rarity
+                int(float(card_data.get('market_value', 0)) * 10**18),  # 7. estimated_value_per_card (wei)
+                user_wallet,                                     # 8. owner_wallet
+                None,                                            # 9. wrap_pool_address
+                0,                                               # 10. total_supply
+                0,                                               # 11. total_cards_deposited
+                0,                                               # 12. total_tokens_issued
+                deploy_result.get('transaction_hash'),           # 13. transaction_hash
+                deploy_result.get('block_number'),               # 14. block_number
+                deploy_result.get('gas_used'),                   # 15. gas_used
             )
         )
         return {
